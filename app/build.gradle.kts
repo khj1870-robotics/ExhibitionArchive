@@ -7,6 +7,12 @@ plugins {
     kotlin("plugin.serialization") version "2.2.21"
 }
 
+val signingStoreFile = providers.environmentVariable("ANDROID_SIGNING_STORE_FILE").orNull
+val signingStorePassword = providers.environmentVariable("ANDROID_SIGNING_STORE_PASSWORD").orNull
+val signingKeyAlias = providers.environmentVariable("ANDROID_SIGNING_KEY_ALIAS").orNull
+val signingKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASSWORD").orNull
+val hasStableSigning = listOf(signingStoreFile, signingStorePassword, signingKeyAlias, signingKeyPassword).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.example.exhibitionarchive"
     compileSdk = 36
@@ -15,8 +21,8 @@ android {
         applicationId = "com.example.exhibitionarchive"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }
@@ -30,6 +36,22 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
+
+    signingConfigs {
+        if (hasStableSigning) {
+            create("stable") {
+                storeFile = file(requireNotNull(signingStoreFile))
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        getByName("debug") {
+            if (hasStableSigning) signingConfig = signingConfigs.getByName("stable")
+        }
+    }
 }
 
 ksp {

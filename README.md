@@ -45,4 +45,4 @@
 
 ## 주의
 
-현재 버전은 `0.2.0`이다. 단위 테스트와 debug APK 빌드를 검증했으며 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 기존 `0.1.0` 데이터베이스는 Room 마이그레이션을 통해 보존된다.
+현재 버전은 `0.2.1`이다. 단위 테스트와 debug APK 빌드를 검증했으며 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 기존 `0.1.0` 데이터베이스는 Room 마이그레이션을 통해 보존된다. GitHub Actions 빌드는 저장소 Secret에 보관된 고정 키로 서명해 이후 APK를 업데이트 설치할 수 있다.
