@@ -9,4 +9,10 @@ class TagRulesTest {
         val tag = TagEntity(name = "  Kinetic Art  ")
         assertEquals("kinetic art", tag.normalizedName)
     }
+
+    @Test
+    fun artistNormalizedName_trimsAndLowercases() {
+        val artist = ArtistEntity(name = "  Nam June PAIK  ")
+        assertEquals("nam june paik", artist.normalizedName)
+    }
 }

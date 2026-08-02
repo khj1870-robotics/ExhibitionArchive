@@ -24,6 +24,7 @@ interface VisitDao {
     @Query("SELECT * FROM visits WHERE visitedAt BETWEEN :from AND :to ORDER BY visitedAt") fun observeBetween(from: String, to: String): Flow<List<VisitEntity>>
     @Insert suspend fun insert(item: VisitEntity): Long
     @Update suspend fun update(item: VisitEntity)
+    @Query("SELECT * FROM visits WHERE exhibitionId=:exhibitionId ORDER BY visitedAt DESC LIMIT 1") suspend fun latestForExhibition(exhibitionId: Long): VisitEntity?
     @Query("SELECT * FROM visits") suspend fun allNow(): List<VisitEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<VisitEntity>)
 }
@@ -32,6 +33,7 @@ interface VisitDao {
 interface ArtistDao {
     @Query("SELECT * FROM artists ORDER BY name") fun observeAll(): Flow<List<ArtistEntity>>
     @Query("SELECT * FROM artists WHERE id=:id") fun observe(id: Long): Flow<ArtistEntity?>
+    @Query("SELECT * FROM artists WHERE normalizedName=:normalized LIMIT 1") suspend fun findByNormalizedName(normalized: String): ArtistEntity?
     @Query("SELECT * FROM artists WHERE name LIKE '%' || :query || '%' ORDER BY name") fun search(query: String): Flow<List<ArtistEntity>>
     @Insert suspend fun insert(item: ArtistEntity): Long
     @Update suspend fun update(item: ArtistEntity)
@@ -44,10 +46,12 @@ interface ArtworkDao {
     @Transaction @Query("SELECT * FROM artworks WHERE exhibitionId=:exhibitionId ORDER BY displayOrder, createdAt") fun observeForExhibition(exhibitionId: Long): Flow<List<ArtworkCard>>
     @Transaction @Query("SELECT * FROM artworks WHERE artistId=:artistId ORDER BY createdAt DESC") fun observeForArtist(artistId: Long): Flow<List<ArtworkCard>>
     @Transaction @Query("SELECT * FROM artworks WHERE id=:id") fun observeCard(id: Long): Flow<ArtworkCard?>
+    @Transaction @Query("SELECT * FROM artworks WHERE id=:id") suspend fun getCard(id: Long): ArtworkCard?
     @Query("SELECT * FROM artworks WHERE title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR personalReview LIKE '%' || :query || '%' ORDER BY updatedAt DESC") fun search(query: String): Flow<List<ArtworkEntity>>
     @Insert suspend fun insert(item: ArtworkEntity): Long
     @Update suspend fun update(item: ArtworkEntity)
     @Query("DELETE FROM artworks WHERE id=:id") suspend fun deleteById(id: Long)
+    @Query("SELECT id FROM artworks WHERE exhibitionId=:exhibitionId") suspend fun idsForExhibition(exhibitionId: Long): List<Long>
     @Query("SELECT * FROM artworks") suspend fun allNow(): List<ArtworkEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<ArtworkEntity>)
 }
@@ -60,6 +64,13 @@ interface MediaDao {
     @Query("SELECT * FROM audio_records WHERE artworkId=:artworkId ORDER BY recordedAt DESC") fun observeAudioForArtwork(artworkId: Long): Flow<List<AudioRecordEntity>>
     @Query("SELECT * FROM artwork_images") suspend fun allImages(): List<ArtworkImageEntity>
     @Query("SELECT * FROM audio_records") suspend fun allAudio(): List<AudioRecordEntity>
+    @Query("SELECT * FROM artwork_images WHERE artworkId=:artworkId ORDER BY createdAt") suspend fun imagesForArtworkNow(artworkId: Long): List<ArtworkImageEntity>
+    @Query("SELECT * FROM artwork_images WHERE id=:id") suspend fun image(id: Long): ArtworkImageEntity?
+    @Query("DELETE FROM artwork_images WHERE id=:id") suspend fun deleteImage(id: Long)
+    @Query("SELECT localPath FROM artwork_images WHERE artworkId IN (SELECT id FROM artworks WHERE exhibitionId=:exhibitionId) AND localPath IS NOT NULL") suspend fun imagePathsForExhibition(exhibitionId: Long): List<String>
+    @Query("SELECT filePath FROM audio_records WHERE (exhibitionId=:exhibitionId OR artworkId IN (SELECT id FROM artworks WHERE exhibitionId=:exhibitionId)) AND filePath IS NOT NULL") suspend fun audioPathsForExhibition(exhibitionId: Long): List<String>
+    @Query("SELECT localPath FROM artwork_images WHERE artworkId=:artworkId AND localPath IS NOT NULL") suspend fun imagePathsForArtwork(artworkId: Long): List<String>
+    @Query("SELECT filePath FROM audio_records WHERE artworkId=:artworkId AND filePath IS NOT NULL") suspend fun audioPathsForArtwork(artworkId: Long): List<String>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertImages(items: List<ArtworkImageEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAudio(items: List<AudioRecordEntity>)
     @Query("DELETE FROM audio_records WHERE id=:id") suspend fun deleteAudio(id: Long)

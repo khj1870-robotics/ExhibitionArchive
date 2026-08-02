@@ -24,4 +24,15 @@ class FileStore @Inject constructor(@ApplicationContext private val context: Con
         val dir = File(context.filesDir, "audio").apply { mkdirs() }
         return File(dir, "${UUID.randomUUID()}.m4a")
     }
+
+    fun deleteManagedFile(path: String?) {
+        if (path.isNullOrBlank()) return
+        runCatching {
+            val target = File(path)
+            val managedRoots = listOf(File(context.filesDir, "images"), File(context.filesDir, "audio"))
+            if (managedRoots.any { root -> target.canonicalPath.startsWith(root.canonicalPath + File.separator) }) {
+                target.delete()
+            }
+        }
+    }
 }

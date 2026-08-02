@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
     entities = [ExhibitionEntity::class, VisitEntity::class, ArtistEntity::class, ArtworkEntity::class,
         ArtworkImageEntity::class, AudioRecordEntity::class, TagEntity::class,
         ExhibitionTagCrossRef::class, ArtworkTagCrossRef::class],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
