@@ -86,7 +86,7 @@ There is no backend — Room remains the local source of truth, images/audio are
 ./gradlew connectedAndroidTest   # instrumented tests, requires a device/emulator
 ```
 
-Requires JDK 17 and Android SDK 36 (compileSdk/targetSdk 36, minSdk 26). CI (`.github/workflows/build-apk.yml`) runs `./gradlew testDebugUnitTest assembleDebug` for pull requests and pushes to `main`, then uploads the debug APK artifact. Lint is still a separate local check.
+Requires JDK 17 and Android SDK 36 (compileSdk/targetSdk 36, minSdk 26). CI (`.github/workflows/build-apk.yml`) runs `./gradlew testDebugUnitTest lintDebug assembleDebug` for pull requests and pushes to `main`, then uploads the debug APK artifact.
 
 There is no linter/formatter configured (no ktlint/detekt). Match the existing dense, single-line Compose style in `Screens.kt` when editing that file rather than reformatting it.
 
