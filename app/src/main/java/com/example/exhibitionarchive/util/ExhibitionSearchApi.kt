@@ -106,7 +106,7 @@ class ExhibitionSearchApi @Inject constructor() {
 
     private fun PublicExhibition.toSearchResult(): SearchResultItem {
         val dates = listOfNotNull(startDate, endDate).joinToString(" ~ ")
-        val summary = listOf(sourceName, venue, dates.ifBlank { null }).filterNotNull().joinToString(" · ")
+        val summary = listOf(sourceName, venue, dates.takeIf { it.isNotBlank() }).filterNotNull().joinToString(" · ")
         return SearchResultItem(
             title = title,
             link = detailUrl,
