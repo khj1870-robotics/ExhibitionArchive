@@ -9,3 +9,6 @@ app/debug.keystore
 captures/
 .externalNativeBuild/
 .cxx/
+collector/node_modules/
+collector/cache/
+collector/output/

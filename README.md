@@ -12,6 +12,8 @@
 - 작가 및 태그 데이터 구조
 - 전시·작가·태그 아카이브
 - 전시 검색
+- 7개 전시 사이트의 공개 목록 기반 전시명 자동 검색
+- 링크 입력을 통한 전시 정보 자동 가져오기
 - Room 로컬 데이터베이스
 - 갤러리 이미지의 앱 내부 저장
 - M4A 녹음을 위한 recorder 기반 코드
@@ -39,10 +41,23 @@
 
 명령줄에서는 JDK와 Android SDK 경로를 설정한 후 `./gradlew testDebugUnitTest assembleDebug`로 검증할 수 있다.
 
+## 공개 전시정보 수집
+
+`collector/`는 아트맵, 네오룩, 아트바바, 국립현대미술관, 대림미술관, 리움미술관, 서울시립미술관의 공개 전시 목록을 공통 JSON 형식으로 변환한다. GitHub Actions가 6시간마다 수집해 `exhibition-data` Release의 `exhibitions.json`을 갱신하며, 앱은 이 파일을 내려받아 검색어를 기기 안에서 대조한다.
+
+```bash
+cd collector
+npm ci
+npm test
+npm run collect
+```
+
+사이트 한 곳의 수집이 실패해도 나머지는 계속 갱신한다. 이전 정상 데이터가 있으면 실패한 사이트의 목록은 마지막 정상 버전을 유지하고 수집 상태를 `stale`로 표시한다. 사용자 검색어, 관람 기록, 감상과 사진은 수집기로 전송하지 않는다.
+
 ## 패키지
 
 `com.example.exhibitionarchive`
 
 ## 주의
 
-현재 버전은 `0.2.1`이다. 단위 테스트와 debug APK 빌드를 검증했으며 APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 기존 `0.1.0` 데이터베이스는 Room 마이그레이션을 통해 보존된다. GitHub Actions 빌드는 저장소 Secret에 보관된 고정 키로 서명해 이후 APK를 업데이트 설치할 수 있다.
+현재 버전은 `0.2.1`이다. APK는 `app/build/outputs/apk/debug/app-debug.apk`에 생성된다. 기존 `0.1.0` 데이터베이스는 Room 마이그레이션을 통해 보존된다. GitHub Actions 빌드는 저장소 Secret에 보관된 고정 키로 서명해 이후 APK를 업데이트 설치할 수 있다.

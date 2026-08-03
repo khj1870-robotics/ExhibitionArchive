@@ -6,57 +6,67 @@ import org.junit.Test
 class ExhibitionSearchApiTest {
     private val api = ExhibitionSearchApi()
 
-    @Test
-    fun parseResponse_stripsHighlightTagsFromTitleAndDescription() {
-        val rawJson = """
+    private val rawJson = """
+        {
+          "schemaVersion": 1,
+          "generatedAt": "2026-08-03T00:00:00.000Z",
+          "sources": [],
+          "exhibitions": [
             {
-              "items": [
-                {
-                  "title": "<b>노원구</b> 전시회 안내",
-                  "link": "https://www.nowonarts.kr/channels/exhibition/programs/946",
-                  "description": "이번 <b>전시</b>는 다양한 작품을 소개합니다."
-                }
-              ]
-            }
-        """.trimIndent()
-
-        val results = api.parseResponse(rawJson)
-
-        assertEquals(1, results.size)
-        assertEquals("노원구 전시회 안내", results[0].title)
-        assertEquals("https://www.nowonarts.kr/channels/exhibition/programs/946", results[0].link)
-        assertEquals("이번 전시는 다양한 작품을 소개합니다.", results[0].description)
-    }
-
-    @Test
-    fun parseResponse_returnsEmptyListWhenNoItems() {
-        val results = api.parseResponse("""{"items": []}""")
-        assertEquals(emptyList<SearchResultItem>(), results)
-    }
-
-    @Test
-    fun parseResponse_keepsOnlyConfiguredExhibitionSites() {
-        val rawJson = """
+              "sourceId": "mmca",
+              "sourceName": "국립현대미술관",
+              "title": "한국 현대미술의 시선",
+              "venue": "국립현대미술관 서울",
+              "startDate": "2026-08-01",
+              "endDate": "2026-10-01",
+              "status": "current",
+              "imageUrl": "https://example.com/poster.jpg",
+              "detailUrl": "https://www.mmca.go.kr/exhibitions/1",
+              "description": "한국 현대미술을 살펴보는 전시"
+            },
             {
-              "items": [
-                {"title":"국립현대미술관 전시","link":"https://www.mmca.go.kr/exhibitions/exhibitionsDetail.do?id=1","description":"설명"},
-                {"title":"일반 블로그","link":"https://example.com/post/1","description":"설명"}
-              ]
+              "sourceId": "leeum",
+              "sourceName": "리움미술관",
+              "title": "빛의 경계",
+              "venue": "리움미술관",
+              "detailUrl": "https://www.leeumhoam.org/leeum/exhibition/2"
             }
-        """.trimIndent()
-
-        val results = api.parseResponse(rawJson)
-
-        assertEquals(1, results.size)
-        assertEquals("국립현대미술관 전시", results.single().title)
-    }
-
-    @Test
-    fun buildScopedQuery_containsAllConfiguredSites() {
-        val query = api.buildScopedQuery("고야")
-
-        ExhibitionSearchApi.SEARCH_DOMAINS.forEach { domain ->
-            check(query.contains("site:$domain"))
+          ]
         }
+    """.trimIndent()
+
+    @Test
+    fun parseDataset_readsUnifiedExhibitionData() {
+        val dataset = api.parseDataset(rawJson)
+
+        assertEquals(2, dataset.exhibitions.size)
+        assertEquals("국립현대미술관", dataset.exhibitions.first().sourceName)
+    }
+
+    @Test
+    fun searchDataset_matchesTitleVenueAndSourceWithoutSendingQuery() {
+        val dataset = api.parseDataset(rawJson)
+
+        assertEquals("한국 현대미술의 시선", api.searchDataset(dataset, "현대 미술").single().title)
+        assertEquals("빛의 경계", api.searchDataset(dataset, "리움").single().title)
+        assertEquals("한국 현대미술의 시선", api.searchDataset(dataset, "서울").single().title)
+    }
+
+    @Test
+    fun searchDataset_respectsDisplayLimit() {
+        val dataset = api.parseDataset(rawJson)
+        assertEquals(1, api.searchDataset(dataset, "미술", display = 1).size)
+    }
+
+    @Test
+    fun searchResult_convertsDirectlyToImportInfo() {
+        val result = api.searchDataset(api.parseDataset(rawJson), "한국 현대").single()
+        val info = result.toImportInfo()
+
+        assertEquals(result.title, info.title)
+        assertEquals(result.link, info.officialUrl)
+        assertEquals(result.venueName, info.venueName)
+        assertEquals(result.posterImageUrl, info.posterImageUrl)
+        assertEquals("한국 현대미술을 살펴보는 전시", info.description)
     }
 }

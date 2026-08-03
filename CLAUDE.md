@@ -74,7 +74,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 전시기록 (Exhibition Archive) is a single-module Android MVP app for logging exhibition visits: visit dates, posters, one-line and detailed reviews, artworks/photos, artists, and tags, all stored locally. Package: `com.example.exhibitionarchive`. Source and UI strings are in Korean.
 
-There is no backend — Room remains the local source of truth, images/audio are copied into app-private storage, and JSON+ZIP export/import is the only data portability mechanism. The app is otherwise online: the "전시 정보 자동 가져오기" feature (link paste / online name search on `ExhibitionCreateScreen`) requires internet access to fetch external exhibition pages and call the Naver Search API — see `util/ExhibitionPageFetcher.kt`, `util/ExhibitionSearchApi.kt`, `util/SecureKeyStore.kt` below.
+There is no personal-data backend — Room remains the local source of truth, images/audio are copied into app-private storage, and JSON+ZIP export/import is the only data portability mechanism. A GitHub Actions collector under `collector/` publishes a read-only public exhibition dataset every six hours. The app downloads that dataset for local name search; user queries and records are never sent to the collector. Link import still fetches the supplied public page directly — see `util/ExhibitionPageFetcher.kt` and `util/ExhibitionSearchApi.kt` below.
 
 ## Build & test commands
 
@@ -101,7 +101,9 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
   - `AppRepository.kt`: the only class that touches the DAOs from the UI/ViewModel side. Multi-table writes (`createExhibition`, `addArtwork`, `replaceFromBackup`) are wrapped in `db.withTransaction {}`. Add new cross-entity operations here rather than calling multiple DAOs from the ViewModel.
   - `DatabaseModule.kt`: Hilt `@Module` providing the singleton `AppDatabase`.
 - **`ui/`** — one shared `AppViewModel` (`@HiltViewModel`) exposing repository `Flow`s as `stateIn(..., WhileSubscribed(5_000))` `StateFlow`s, plus a `_message`/`message` `StateFlow` used for one-shot snackbar errors (set the message, screen shows it via `LaunchedEffect` + `SnackbarHostState`, then calls `clearMessage()`). `Screens.kt` contains **all** Composable screens and `ExhibitionArchiveRoot`, which owns a single `NavHost` with string routes for home/calendar/archive/settings/search, exhibition create/detail/edit, and artwork create/detail/edit. There is no separate `navigation/` package — routes are defined inline in `ExhibitionArchiveRoot`.
-- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs); `downloadImage(url)` saves a remotely fetched poster into the same `images/` dir for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) but is not yet wired into any screen (see README "아직 보완할 부분"). `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` extracts `schema.org`/`Event` JSON-LD and OpenGraph fields, then applies verified site-specific handling for SeMA, Nowon Arts, and Interpark ticket pages. `ExhibitionSearchApi` calls the Naver Search open API and limits results to the configured exhibition archive/museum domains. `SecureKeyStore` wraps `EncryptedSharedPreferences` (Android Keystore-backed) to store the user-supplied Naver API key locally, since there's no backend to hold it server-side.
+- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs); `downloadImage(url)` saves a remotely fetched poster into the same `images/` dir for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) but is not yet wired into any screen (see README "아직 보완할 부분"). `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` extracts `schema.org`/`Event` JSON-LD and OpenGraph fields, then applies verified site-specific handling for SeMA, Nowon Arts, and Interpark ticket pages. `ExhibitionSearchApi` downloads the collector's unified JSON dataset, caches it for ten minutes, and matches title/venue/source/description locally. It does not transmit the search query.
+
+- **`collector/`** — Node.js collector with one adapter per public source (Art-map, Neolook, Artbava, MMCA, Daelim Museum, Leeum, SeMA). `.github/workflows/collect-exhibitions.yml` tests the adapters and publishes `exhibitions.json` to the stable `exhibition-data` GitHub Release every six hours. A source failure must not erase other sources or its last successful cached entries.
 
 ### Data model relationships
 
@@ -133,16 +135,16 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
 
 ### 외부 연동 자동 기록 (부분 구현됨)
 
-`ExhibitionCreateScreen`에서 전시 링크 붙여넣기(범용 OG 메타태그 + `schema.org`/`Event` JSON-LD 파싱) 또는 전시명으로 온라인 검색(네이버 검색 API) → 검색 결과 선택 시 제목/설명/포스터/장소/기간/공식 링크가 자동으로 채워지는 기능은 구현됨. 다만:
+`ExhibitionCreateScreen`에서 전시 링크 붙여넣기(범용 OG 메타태그 + `schema.org`/`Event` JSON-LD 파싱) 또는 7개 사이트 공개 목록의 전시명 검색 → 검색 결과 선택 시 제목/포스터/장소/기간/공식 링크가 자동으로 채워지는 기능은 구현됨. 다만:
 - **일부 사이트만 정밀 파싱** — 서울시립미술관, 노원문화재단, 인터파크 티켓은 전용 처리가 있고, 그 밖의 사이트는 범용 메타데이터가 없는 필드가 빈칸으로 남을 수 있음.
 - **작품 목록 자동 추출은 범위에서 제외** — 사이트마다 구조가 달라 범용 파싱으로 신뢰성 있게 뽑을 수 없어서, 작품은 지금처럼 전시 상세 화면에서 수동으로 추가.
-- 네이버 검색 API 키는 사용자가 설정 화면에서 직접 입력해 기기에 암호화 저장(`EncryptedSharedPreferences`)한다 — 서버가 없어 키를 앱 내부 말고 숨길 곳이 없기 때문.
+- 전시명 검색은 6시간마다 갱신되는 통합 JSON을 내려받아 기기에서 수행한다. API 키가 필요 없고 검색어는 서버로 전송되지 않는다.
 
 ### 향후 구현하고 싶은 기능 (미구현, 로드맵)
 
 - **전시 팜플렛 사진 촬영 자동 인식**: 카메라로 전시 팜플렛을 촬영하면 위 링크/검색 가져오기와 동일하게 전시 정보가 자동으로 입력되는 기능 (OCR/이미지 인식 기반, 아이디어만 기록 — 미구현)
 - **사이트별 정밀 파싱**: 자주 쓰는 아카이빙 사이트(예: nowonarts.kr)의 실제 HTML 구조를 확인해 장소·기간·작품 목록까지 정확히 뽑는 전용 파서 추가
-- **전시 추천 피드**: 아트맵·네오룩·아트바바와 국립현대미술관·대림미술관·리움미술관·서울시립미술관에 올라온 진행/예정 전시를 앱에서 보여주고, 지역·기간·관심 태그와 기존 기록을 기준으로 추천하는 기능. 각 사이트의 제공 조건과 안정적인 데이터 접근 방식을 먼저 확인한 뒤 구현한다.
+- **전시 추천 피드**: 통합 공개 전시 데이터의 진행/예정 전시를 앱에서 보여주고, 지역·기간·관심 태그와 기존 기록을 기기 안에서 비교해 추천하는 기능. 데이터 수집 기반은 구현됐고 추천 UI·점수화는 아직 미구현이다.
 - **사진 코멘트**: 한 전시 스레드 안에서 여러 사진 각각에 코멘트를 달 수 있는 기능
 - **이미지 주석**: 작품 이미지 위에 직접 그림이나 글로 메모를 남기는 기능
 - **3D 큐레이션**: 기록된 작품이나 검색 가능한 모든 작품을 가지고 3D 큐브 공간에서 직접 큐레이팅해보는 기능

@@ -11,7 +11,6 @@ import com.example.exhibitionarchive.util.ExhibitionPageFetcher
 import com.example.exhibitionarchive.util.ExhibitionSearchApi
 import com.example.exhibitionarchive.util.FileStore
 import com.example.exhibitionarchive.util.SearchResultItem
-import com.example.exhibitionarchive.util.SecureKeyStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,8 +33,7 @@ class AppViewModel @Inject constructor(
     val fileStore: FileStore,
     private val backupManager: BackupManager,
     private val pageFetcher: ExhibitionPageFetcher,
-    private val searchApi: ExhibitionSearchApi,
-    private val secureKeyStore: SecureKeyStore
+    private val searchApi: ExhibitionSearchApi
 ) : ViewModel() {
     val exhibitions = repository.exhibitions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val visits = repository.visits.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -99,20 +97,11 @@ class AppViewModel @Inject constructor(
 
     fun searchOnline(query: String, onResult: (List<SearchResultItem>) -> Unit) {
         if (query.isBlank()) { _message.value = "검색어를 입력하세요."; return }
-        val keys = secureKeyStore.getNaverKeys()
-        if (keys == null) { _message.value = "설정 화면에서 네이버 검색 API 키를 먼저 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { searchApi.search(query, keys.first, keys.second) }
+            runCatching { searchApi.search(query) }
                 .onSuccess(onResult)
-                .onFailure { _message.value = it.message ?: "검색에 실패했습니다." }
+                .onFailure { _message.value = it.message ?: "공개 전시정보를 불러오지 못했습니다." }
         }
-    }
-
-    fun hasNaverApiKeys(): Boolean = secureKeyStore.getNaverKeys() != null
-
-    fun saveNaverApiKeys(clientId: String, clientSecret: String) {
-        secureKeyStore.saveNaverKeys(clientId.trim(), clientSecret.trim())
-        _message.value = "네이버 API 키를 저장했습니다."
     }
 
     fun deleteExhibition(id: Long, onDone: () -> Unit) {

@@ -1,0 +1,64 @@
+name: Collect public exhibitions
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  pull_request:
+    paths:
+      - "collector/**"
+      - ".github/workflows/collect-exhibitions.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: collector
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: collector/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Test collectors
+        run: npm test
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: collector/package-lock.json
+      - name: Install dependencies
+        working-directory: collector
+        run: npm ci
+      - name: Download previous dataset
+        run: |
+          mkdir -p collector/cache
+          gh release download exhibition-data --pattern exhibitions.json --dir collector/cache --clobber || true
+      - name: Collect exhibitions
+        run: node collector/src/collect.mjs --previous collector/cache/exhibitions.json --output collector/output/exhibitions.json
+      - name: Publish stable dataset
+        run: |
+          gh release view exhibition-data >/dev/null 2>&1 || gh release create exhibition-data --title "공개 전시정보 데이터" --notes "전시기록 앱이 사용하는 공개 전시 목록입니다. 6시간마다 갱신됩니다." --latest=false
+          gh release upload exhibition-data collector/output/exhibitions.json --clobber

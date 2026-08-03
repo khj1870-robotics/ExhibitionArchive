@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -39,6 +38,7 @@ import coil3.compose.AsyncImage
 import com.example.exhibitionarchive.data.*
 import com.example.exhibitionarchive.util.ExhibitionImportInfo
 import com.example.exhibitionarchive.util.SearchResultItem
+import com.example.exhibitionarchive.util.toImportInfo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -135,7 +135,7 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone:
     var description by remember { mutableStateOf("") }; var startDate by remember { mutableStateOf("") }; var endDate by remember { mutableStateOf("") }; var officialUrl by remember { mutableStateOf("") }; var importUrl by remember { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<SearchResultItem>>(emptyList()) }; var suppressSuggestions by remember { mutableStateOf(false) }; var dateDialog by remember { mutableStateOf(false) }
     var pendingArtworks by remember { mutableStateOf<List<PendingArtwork>>(emptyList()) }; var artworkDialog by remember { mutableStateOf(false) }
-    val saving by vm.saving.collectAsStateWithLifecycle(); val scope = rememberCoroutineScope(); val searchReady = vm.hasNaverApiKeys()
+    val saving by vm.saving.collectAsStateWithLifecycle(); val scope = rememberCoroutineScope()
     val latestPoster by rememberUpdatedState(poster); val latestArtworks by rememberUpdatedState(pendingArtworks); val latestSaving by rememberUpdatedState(saving)
     DisposableEffect(Unit) { onDispose { if (!latestSaving) { vm.fileStore.deleteManagedFile(latestPoster); latestArtworks.forEach { vm.fileStore.deleteManagedFile(it.imagePath) } } } }
     val imageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { scope.launch { runCatching { vm.fileStore.copyImage(it) }.onSuccess { path -> vm.fileStore.deleteManagedFile(poster); poster = path }.onFailure { e -> vm.showMessage(e.message ?: "이미지를 가져오지 못했습니다.") } } } }
@@ -143,10 +143,10 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone:
         info.title?.let { suppressSuggestions = true; title = it }; info.venueName?.let { venue = it }; info.description?.let { description = it }; info.startDate?.let { startDate = it }; info.endDate?.let { endDate = it }; info.officialUrl?.let { officialUrl = it }
         info.posterImageUrl?.let { url -> scope.launch { vm.fileStore.downloadImage(url)?.let { path -> vm.fileStore.deleteManagedFile(poster); poster = path } } }
     }
-    LaunchedEffect(title, searchReady) {
+    LaunchedEffect(title) {
         suggestions = emptyList()
         if (suppressSuggestions) suppressSuggestions = false
-        else if (searchReady && title.trim().length >= 2) { delay(600); vm.searchOnline(title) { suggestions = it.take(5) } }
+        else if (title.trim().length >= 2) { delay(600); vm.searchOnline(title) { suggestions = it.take(5) } }
     }
     if (artworkDialog) ArtworkQuickAddDialog(vm, { artworkDialog = false }) { pendingArtworks = pendingArtworks + it }
     Scaffold(topBar = { TopAppBar({ Text("전시 추가") }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "뒤로") } }) }) { p ->
@@ -155,8 +155,7 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone:
             item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(importUrl, { importUrl = it }, Modifier.weight(1f), label = { Text("전시 링크") }); Button({ vm.importExhibitionInfo(importUrl, ::applyImport) }) { Text("가져오기") } } }
             item { Box(Modifier.fillMaxWidth().height(220.dp).clickable { imageLauncher.launch("image/*") }, contentAlignment = Alignment.Center) { Poster(poster, Modifier.fillMaxSize()); Text(if (poster == null) "포스터 선택" else "포스터 변경", Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = .8f)).padding(8.dp)) } }
             item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("전시명 *") }, isError = title.isBlank()) }
-            if (!searchReady) item { Text("전시명 자동 검색을 사용하려면 설정에서 네이버 검색 API 키를 저장하세요.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
-            if (suggestions.isNotEmpty()) item { Column { Text("검색된 전시", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); suggestions.forEach { result -> ListItem({ Text(result.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(result.description, maxLines = 2, overflow = TextOverflow.Ellipsis) }, modifier = Modifier.clickable { suggestions = emptyList(); vm.importExhibitionInfo(result.link, ::applyImport) }) } } }
+            if (suggestions.isNotEmpty()) item { Column { Text("검색된 전시", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); suggestions.forEach { result -> ListItem({ Text(result.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(result.description, maxLines = 2, overflow = TextOverflow.Ellipsis) }, modifier = Modifier.clickable { suggestions = emptyList(); applyImport(result.toImportInfo()) }) } } }
             item { OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("전시 설명") }, minLines = 2) }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(startDate, { startDate = it }, Modifier.weight(1f), label = { Text("전시 시작일") }); OutlinedTextField(endDate, { endDate = it }, Modifier.weight(1f), label = { Text("전시 종료일") }) } }
             item { OutlinedButton({ dateDialog = true }, Modifier.fillMaxWidth()) { Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text("관람일  $date") } }
@@ -311,8 +310,8 @@ private fun SearchScreen(vm: AppViewModel, onOpen: (Long) -> Unit) { var q by re
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(vm: AppViewModel) {
-    val scope = rememberCoroutineScope(); var status by remember { mutableStateOf("") }; var clientId by remember { mutableStateOf("") }; var clientSecret by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope(); var status by remember { mutableStateOf("") }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> uri?.let { scope.launch { runCatching { vm.exportBackup(it) }.onSuccess { status = "백업 완료" }.onFailure { e -> status = e.message ?: "백업 실패" } } } }
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { scope.launch { runCatching { vm.importBackup(it) }.onSuccess { status = "복원 완료" }.onFailure { e -> status = e.message ?: "복원 실패" } } } }
-    Scaffold(topBar = { TopAppBar({ Text("설정") }) }) { p -> Column(Modifier.padding(p).padding(20.dp).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("데이터", style = MaterialTheme.typography.titleLarge); Button({ export.launch("exhibition_backup_${LocalDate.now()}.zip") }, Modifier.fillMaxWidth()) { Icon(Icons.Default.FileUpload, null); Text(" 백업 파일 만들기") }; OutlinedButton({ import.launch(arrayOf("application/zip", "application/octet-stream")) }, Modifier.fillMaxWidth()) { Icon(Icons.Default.FileDownload, null); Text(" 백업에서 복원") }; if (status.isNotBlank()) Text(status); HorizontalDivider(); Text("전시명 자동 검색", style = MaterialTheme.typography.titleLarge); Text("아트맵·네오룩·아트바바·국립현대미술관·대림미술관·리움미술관·서울시립미술관·노원문화재단 결과만 검색합니다. 네이버 오픈API 키는 기기에 암호화해 저장합니다.", color = MaterialTheme.colorScheme.onSurfaceVariant); OutlinedTextField(clientId, { clientId = it }, Modifier.fillMaxWidth(), label = { Text("네이버 Client ID") }); OutlinedTextField(clientSecret, { clientSecret = it }, Modifier.fillMaxWidth(), label = { Text("네이버 Client Secret") }, visualTransformation = PasswordVisualTransformation()); Button({ vm.saveNaverApiKeys(clientId, clientSecret) }, Modifier.fillMaxWidth(), enabled = clientId.isNotBlank() && clientSecret.isNotBlank()) { Text("API 키 저장") }; HorizontalDivider(); Text("기록은 로컬에 저장되며, 링크 가져오기와 전시명 검색만 인터넷을 사용합니다.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+    Scaffold(topBar = { TopAppBar({ Text("설정") }) }) { p -> Column(Modifier.padding(p).padding(20.dp).imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("데이터", style = MaterialTheme.typography.titleLarge); Button({ export.launch("exhibition_backup_${LocalDate.now()}.zip") }, Modifier.fillMaxWidth()) { Icon(Icons.Default.FileUpload, null); Text(" 백업 파일 만들기") }; OutlinedButton({ import.launch(arrayOf("application/zip", "application/octet-stream")) }, Modifier.fillMaxWidth()) { Icon(Icons.Default.FileDownload, null); Text(" 백업에서 복원") }; if (status.isNotBlank()) Text(status); HorizontalDivider(); Text("전시명 자동 검색", style = MaterialTheme.typography.titleLarge); Text("아트맵·네오룩·아트바바·국립현대미술관·대림미술관·리움미술관·서울시립미술관의 공개 전시 목록을 주기적으로 갱신해 검색합니다. 별도 API 키는 필요하지 않습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant); HorizontalDivider(); Text("개인 관람 기록·감상·사진은 기기에만 저장됩니다. 링크 가져오기와 공개 전시 목록 다운로드에만 인터넷을 사용하며, 입력한 검색어는 서버로 보내지 않습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
