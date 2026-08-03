@@ -7,7 +7,6 @@ import {
   parseNeolook,
   parseSema
 } from "./parsers.mjs";
-import { renderPage } from "./browser.mjs";
 
 const REQUEST_HEADERS = {
   "user-agent": "ExhibitionArchive/1.0 (+https://github.com/khj1870-robotics/ExhibitionArchive)",
@@ -25,19 +24,9 @@ async function request(url, asJson = false) {
 }
 
 async function pages(requests) {
-  const settled = await Promise.allSettled(requests.map(async ([url, parser, status, json = false, browserFallback = false]) => {
-    let body;
-    try {
-      body = await request(url, json);
-    } catch (error) {
-      if (!browserFallback || json) throw error;
-      body = await renderPage(url);
-    }
-    let parsed = parser(body, status);
-    if (!parsed.length && browserFallback && !json) {
-      body = await renderPage(url);
-      parsed = parser(body, status);
-    }
+  const settled = await Promise.allSettled(requests.map(async ([url, parser, status, json = false]) => {
+    const body = await request(url, json);
+    const parsed = parser(body, status);
     if (!parsed.length && typeof body === "string") {
       const scripts = [...body.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)].map((match) => match[1]).slice(-4);
       throw new Error(`전시 목록을 찾지 못했습니다. scripts=${scripts.join(",")}`);
@@ -57,8 +46,8 @@ export const sources = [
     name: "아트맵",
     homepage: "https://art-map.co.kr/",
     collect: () => pages([
-      ["https://m.art-map.co.kr/exhibition/list.php?sta=1", parseArtMap, "current", false, true],
-      ["https://m.art-map.co.kr/exhibition/list.php?sta=2", parseArtMap, "upcoming", false, true]
+      ["https://m.art-map.co.kr/exhibition/list.php?sta=1", parseArtMap, "current"],
+      ["https://m.art-map.co.kr/exhibition/list.php?sta=2", parseArtMap, "upcoming"]
     ])
   },
   {
@@ -66,7 +55,7 @@ export const sources = [
     name: "네오룩",
     homepage: "https://neolook.com/",
     collect: () => pages([
-      ["https://neolook.com/archives", parseNeolook, "unknown", false, true]
+      ["https://neolook.com/archives", parseNeolook, "unknown"]
     ])
   },
   {
@@ -82,8 +71,8 @@ export const sources = [
     name: "국립현대미술관",
     homepage: "https://www.mmca.go.kr/",
     collect: () => pages([
-      ["https://www.mmca.go.kr/exhibitions/progressList.do", parseMmca, "current", false, true],
-      ["https://www.mmca.go.kr/exhibitions/futureProgressList.do", parseMmca, "upcoming", false, true]
+      ["https://www.mmca.go.kr/exhibitions/progressList.do", parseMmca, "current"],
+      ["https://www.mmca.go.kr/exhibitions/futureProgressList.do", parseMmca, "upcoming"]
     ])
   },
   {
@@ -111,8 +100,8 @@ export const sources = [
     name: "서울시립미술관",
     homepage: "https://sema.seoul.go.kr/",
     collect: () => pages([
-      ["https://sema.seoul.go.kr/kr/whatson/landing?whatChoice2=N&whatChoice3=N&whatChoice4=N&whatChoice5=N&whatsonMenuDivList=EX&whenType=FROM_TODAY", parseSema, "current", false, true],
-      ["https://sema.seoul.go.kr/kr/whatson/landing?whatChoice2=N&whatChoice3=N&whatChoice4=N&whatChoice5=N&whatsonMenuDivList=EX&whenType=PLAN_DAY", parseSema, "upcoming", false, true]
+      ["https://sema.seoul.go.kr/kr/whatson/landing?whatChoice2=N&whatChoice3=N&whatChoice4=N&whatChoice5=N&whatsonMenuDivList=EX&whenType=FROM_TODAY", parseSema, "current"],
+      ["https://sema.seoul.go.kr/kr/whatson/landing?whatChoice2=N&whatChoice3=N&whatChoice4=N&whatChoice5=N&whatsonMenuDivList=EX&whenType=PLAN_DAY", parseSema, "upcoming"]
     ])
   }
 ];

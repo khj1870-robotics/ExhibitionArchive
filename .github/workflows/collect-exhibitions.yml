@@ -37,8 +37,6 @@ jobs:
         run: npm ci
       - name: Test collectors
         run: npm test
-      - name: Install browser fallback
-        run: npx playwright install --with-deps chromium
       - name: Test live collection
         run: node src/collect.mjs --output output/exhibitions.json
       - name: Upload collection result
@@ -67,9 +65,6 @@ jobs:
       - name: Install dependencies
         working-directory: collector
         run: npm ci
-      - name: Install browser fallback
-        working-directory: collector
-        run: npx playwright install --with-deps chromium
       - name: Download previous dataset
         run: |
           mkdir -p collector/cache

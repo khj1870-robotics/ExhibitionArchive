@@ -3,7 +3,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dedupe } from "./lib.mjs";
 import { sources } from "./sources.mjs";
-import { closeBrowser } from "./browser.mjs";
 
 function argument(name, fallback) {
   const index = process.argv.indexOf(name);
@@ -71,10 +70,8 @@ async function main() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main()
-    .catch((error) => {
-      process.stderr.write(`${error.stack ?? error}\n`);
-      process.exitCode = 1;
-    })
-    .finally(closeBrowser);
+  main().catch((error) => {
+    process.stderr.write(`${error.stack ?? error}\n`);
+    process.exitCode = 1;
+  });
 }
