@@ -24,9 +24,15 @@ async function request(url, asJson = false) {
 }
 
 async function pages(requests) {
-  const settled = await Promise.allSettled(requests.map(async ([url, parser, status, json = false]) =>
-    parser(await request(url, json), status)
-  ));
+  const settled = await Promise.allSettled(requests.map(async ([url, parser, status, json = false]) => {
+    const body = await request(url, json);
+    const parsed = parser(body, status);
+    if (!parsed.length && typeof body === "string") {
+      const scripts = [...body.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)].map((match) => match[1]).slice(-4);
+      throw new Error(`전시 목록을 찾지 못했습니다. scripts=${scripts.join(",")}`);
+    }
+    return parsed;
+  }));
   const results = settled.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
   if (results.length) return results;
   const failure = settled.find((result) => result.status === "rejected");
@@ -40,8 +46,8 @@ export const sources = [
     name: "아트맵",
     homepage: "https://art-map.co.kr/",
     collect: () => pages([
-      ["https://art-map.co.kr/m/exhibition/list.php?sta=1", parseArtMap, "current"],
-      ["https://art-map.co.kr/m/exhibition/list.php?sta=2", parseArtMap, "upcoming"]
+      ["https://m.art-map.co.kr/exhibition/list.php?sta=1", parseArtMap, "current"],
+      ["https://m.art-map.co.kr/exhibition/list.php?sta=2", parseArtMap, "upcoming"]
     ])
   },
   {
@@ -94,7 +100,8 @@ export const sources = [
     name: "서울시립미술관",
     homepage: "https://sema.seoul.go.kr/",
     collect: () => pages([
-      ["https://sema.seoul.go.kr/kr/whatson/landing?whatsonMenuDivList=EB&whenType=ALL_DAY", parseSema, "unknown"]
+      ["https://sema.seoul.go.kr/kr/whatson/landing?whatChoice2=N&whatChoice3=N&whatChoice4=N&whatChoice5=N&whatsonMenuDivList=EX&whenType=FROM_TODAY", parseSema, "current"],
+      ["https://sema.seoul.go.kr/kr/whatson/landing?whatChoice2=N&whatChoice3=N&whatChoice4=N&whatChoice5=N&whatsonMenuDivList=EX&whenType=PLAN_DAY", parseSema, "upcoming"]
     ])
   }
 ];
