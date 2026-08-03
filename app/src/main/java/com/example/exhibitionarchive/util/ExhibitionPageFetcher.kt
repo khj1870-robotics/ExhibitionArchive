@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -51,7 +52,7 @@ class ExhibitionPageFetcher @Inject constructor() {
         val ogImage = document.select("meta[property=\"og:image\"]").firstOrNull()?.attr("abs:content")
         val canonical = document.select("link[rel=\"canonical\"]").firstOrNull()?.attr("abs:href")
 
-        return ExhibitionImportInfo(
+        val base = ExhibitionImportInfo(
             title = fromJsonLd?.title ?: ogTitle?.ifBlank { null } ?: document.title().ifBlank { null },
             description = fromJsonLd?.description ?: ogDescription?.ifBlank { null },
             posterImageUrl = fromJsonLd?.imageUrl?.let { resolveUrl(baseUrl, it) } ?: ogImage?.ifBlank { null },
@@ -60,7 +61,56 @@ class ExhibitionPageFetcher @Inject constructor() {
             startDate = fromJsonLd?.startDate,
             endDate = fromJsonLd?.endDate
         )
+        return applySitePatch(document, base)
     }
+
+    private fun applySitePatch(document: Document, base: ExhibitionImportInfo): ExhibitionImportInfo {
+        val host = runCatching { URI(document.baseUri()) }.getOrNull()?.host.orEmpty()
+        return when {
+            host.endsWith("sema.seoul.go.kr") -> patchSema(document, base)
+            host.endsWith("nowonarts.kr") -> patchNowonarts(document, base)
+            else -> base
+        }
+    }
+
+    private fun patchSema(document: Document, base: ExhibitionImportInfo): ExhibitionImportInfo {
+        val titleEl = document.selectFirst("div.c-image-letterbox[aria-label]")
+        val title = titleEl?.attr("aria-label")?.ifBlank { null }
+        val posterUrl = document.selectFirst("div.c-image-letterbox img")?.attr("abs:src")?.ifBlank { null }
+        val fields = document.select("div.c-section.o_Ex_more div.t-meta.pure-g div.l-stacked")
+            .flatMap { labelValuePairs(it) }
+            .toMap()
+        val (start, end) = extractDateRange(fields["전시기간"])
+        val description = document.selectFirst("div.o_textmore")?.text()?.ifBlank { null }
+        return base.copy(
+            title = title ?: base.title,
+            posterImageUrl = posterUrl ?: base.posterImageUrl,
+            venueName = fields["전시장소"] ?: base.venueName,
+            startDate = start ?: base.startDate,
+            endDate = end ?: base.endDate,
+            description = description ?: base.description
+        )
+    }
+
+    private fun patchNowonarts(document: Document, base: ExhibitionImportInfo): ExhibitionImportInfo {
+        val info = document.selectFirst("div.exhibitioninfo div.detailUi") ?: return base
+        val title = info.selectFirst("p.tit")?.text()?.ifBlank { null }
+        val (start, end) = extractDateRange(info.selectFirst("p.period")?.text())
+        val posterUrl = document.selectFirst("div.detailCont img")?.attr("abs:src")?.ifBlank { null }
+        return base.copy(
+            title = title ?: base.title,
+            startDate = start ?: base.startDate,
+            endDate = end ?: base.endDate,
+            posterImageUrl = posterUrl ?: base.posterImageUrl,
+            description = null
+        )
+    }
+
+    private fun labelValuePairs(block: Element): List<Pair<String, String>> =
+        block.select("> div.o_h1").mapNotNull { label ->
+            val value = label.nextElementSibling()
+            if (value != null && value.tagName() == "p") label.text().trim() to value.text().trim() else null
+        }
 
     private fun parseJsonLd(document: Document): JsonLdEventInfo? {
         val scripts = document.select("script[type=\"application/ld+json\"]")
@@ -139,4 +189,10 @@ private fun JsonElement.asStringOrNull(): String? = (this as? JsonPrimitive)?.co
 private fun normalizeDate(raw: String?): String? {
     if (raw.isNullOrBlank()) return null
     return Regex("""^\d{4}-\d{2}-\d{2}""").find(raw.trim())?.value
+}
+
+private fun extractDateRange(text: String?): Pair<String?, String?> {
+    if (text.isNullOrBlank()) return null to null
+    val matches = Regex("""(\d{4})\.(\d{2})\.(\d{2})""").findAll(text).map { it.value.replace('.', '-') }.toList()
+    return matches.getOrNull(0) to matches.getOrNull(1)
 }

@@ -11,6 +11,15 @@ android {
     namespace = "com.example.exhibitionarchive"
     compileSdk = 36
 
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.example.exhibitionarchive"
         minSdk = 26
