@@ -28,9 +28,23 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         venue: String?,
         oneLine: String?,
         detail: String?,
-        tagNames: List<String>
+        tagNames: List<String>,
+        description: String? = null,
+        startDate: String? = null,
+        endDate: String? = null,
+        officialUrl: String? = null
     ): Long = db.withTransaction {
-        val exhibitionId = db.exhibitionDao().insert(ExhibitionEntity(title = title.trim(), posterPath = posterPath, venueName = venue?.trim()?.ifBlank { null }))
+        val exhibitionId = db.exhibitionDao().insert(
+            ExhibitionEntity(
+                title = title.trim(),
+                posterPath = posterPath,
+                venueName = venue?.trim()?.ifBlank { null },
+                description = description?.trim()?.ifBlank { null },
+                startDate = startDate?.ifBlank { null },
+                endDate = endDate?.ifBlank { null },
+                officialUrl = officialUrl?.trim()?.ifBlank { null }
+            )
+        )
         db.visitDao().insert(VisitEntity(exhibitionId = exhibitionId, visitedAt = visitDate, oneLineReview = oneLine?.trim()?.ifBlank { null }, detailedReview = detail?.trim()?.ifBlank { null }))
         db.tagDao().setExhibitionTags(exhibitionId, tagNames)
         exhibitionId

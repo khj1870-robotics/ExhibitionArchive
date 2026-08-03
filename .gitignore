@@ -4,6 +4,7 @@
 local.properties
 build/
 app/build/
+app/debug.keystore
 *.iml
 captures/
 .externalNativeBuild/
