@@ -21,9 +21,15 @@ class AudioRecorder @Inject constructor() {
         recorder = r
     }
 
-    fun stopSafely() {
-        runCatching { recorder?.stop() }
-        recorder?.release()
+    fun stop(): Boolean {
+        val current = recorder ?: return false
         recorder = null
+        val stopped = runCatching { current.stop() }.isSuccess
+        current.release()
+        return stopped
+    }
+
+    fun stopSafely() {
+        stop()
     }
 }

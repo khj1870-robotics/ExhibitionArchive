@@ -42,11 +42,13 @@ data class VisitEntity(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
-@Entity(tableName = "artists")
+@Entity(tableName = "artists", indices = [Index("normalizedName")])
 @Serializable
 data class ArtistEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
+    @ColumnInfo(defaultValue = "''")
+    val normalizedName: String = name.trim().lowercase(),
     val originalName: String? = null,
     val birthYear: Int? = null,
     val deathYear: Int? = null,

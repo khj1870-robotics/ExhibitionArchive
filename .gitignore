@@ -1,9 +1,14 @@
 .gradle/
+.android-sdk/
 .idea/
 local.properties
 build/
 app/build/
+app/debug.keystore
 *.iml
 captures/
 .externalNativeBuild/
 .cxx/
+collector/node_modules/
+collector/cache/
+collector/output/
