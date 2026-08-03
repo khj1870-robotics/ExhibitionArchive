@@ -74,7 +74,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 전시기록 (Exhibition Archive) is a single-module Android MVP app for logging exhibition visits: visit dates, posters, one-line and detailed reviews, artworks/photos, artists, and tags, all stored locally. Package: `com.example.exhibitionarchive`. Source and UI strings are in Korean.
 
-There is no backend — the app is fully offline. Room is the source of truth, images/audio are copied into app-private storage, and JSON+ZIP export/import is the only data portability mechanism.
+There is no backend — Room remains the local source of truth, images/audio are copied into app-private storage, and JSON+ZIP export/import is the only data portability mechanism. The app is otherwise online: the "전시 정보 자동 가져오기" feature (link paste / online name search on `ExhibitionCreateScreen`) requires internet access to fetch external exhibition pages and call the Naver Search API — see `util/ExhibitionPageFetcher.kt`, `util/ExhibitionSearchApi.kt`, `util/SecureKeyStore.kt` below.
 
 ## Build & test commands
 
@@ -101,7 +101,7 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
   - `AppRepository.kt`: the only class that touches the DAOs from the UI/ViewModel side. Multi-table writes (`createExhibition`, `addArtwork`, `replaceFromBackup`) are wrapped in `db.withTransaction {}`. Add new cross-entity operations here rather than calling multiple DAOs from the ViewModel.
   - `DatabaseModule.kt`: Hilt `@Module` providing the singleton `AppDatabase`.
 - **`ui/`** — one shared `AppViewModel` (`@HiltViewModel`) exposing repository `Flow`s as `stateIn(..., WhileSubscribed(5_000))` `StateFlow`s, plus a `_message`/`message` `StateFlow` used for one-shot snackbar errors (set the message, screen shows it via `LaunchedEffect` + `SnackbarHostState`, then calls `clearMessage()`). `Screens.kt` contains **all** Composable screens and `ExhibitionArchiveRoot`, which owns a single `NavHost` with string routes (`home`, `calendar`, `archive`, `settings`, `search`, `createExhibition`, `exhibition/{id}`, `artworkCreate/{exhibitionId}`) and a bottom `NavigationBar` shown only on the four top-level routes. There is no separate `navigation/` package — routes are defined inline in `ExhibitionArchiveRoot`.
-- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs). `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) but is not yet wired into any screen (see README "아직 보완할 부분"). `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge).
+- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs); `downloadImage(url)` saves a remotely fetched poster into the same `images/` dir for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) but is not yet wired into any screen (see README "아직 보완할 부분"). `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` fetches a URL with Jsoup and extracts `ExhibitionImportInfo` from `schema.org`/`Event` JSON-LD first, falling back to OpenGraph/meta tags — site-specific scraping is intentionally not implemented since it can't be verified against arbitrary sites. `ExhibitionSearchApi` calls the Naver Search open API (`openapi.naver.com`) via Jsoup and strips the `<b>` highlight tags Naver returns. `SecureKeyStore` wraps `EncryptedSharedPreferences` (Android Keystore-backed) to store the user-supplied Naver API key locally, since there's no backend to hold it server-side; the app's `datastore-preferences` dependency is unused by this feature (plaintext, not suited for secrets) and stays reserved for future non-sensitive settings. All three run their I/O with `withContext(Dispatchers.IO)` (unlike `FileStore`/`BackupManager`'s dispatcher-less suspend functions) because network calls throw `NetworkOnMainThreadException` if left on the caller's default dispatcher.
 
 ### Data model relationships
 
@@ -131,9 +131,17 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
 - JSON+ZIP 전체 백업 및 복원 (교체 복원만 지원, 병합 복원은 미구현)
 - 음성 녹음용 `AudioRecorder` 코드는 있으나 실제 녹음·재생 UI는 아직 연결되지 않음
 
+### 외부 연동 자동 기록 (부분 구현됨)
+
+`ExhibitionCreateScreen`에서 전시 링크 붙여넣기(범용 OG 메타태그 + `schema.org`/`Event` JSON-LD 파싱) 또는 전시명으로 온라인 검색(네이버 검색 API) → 검색 결과 선택 시 제목/설명/포스터/장소/기간/공식 링크가 자동으로 채워지는 기능은 구현됨. 다만:
+- **사이트별 정밀 파싱은 미구현** — 범용 방식으로 못 찾는 필드(특히 장소·기간처럼 JSON-LD가 없는 사이트)는 계속 빈칸으로 남아 사용자가 직접 입력해야 함.
+- **작품 목록 자동 추출은 범위에서 제외** — 사이트마다 구조가 달라 범용 파싱으로 신뢰성 있게 뽑을 수 없어서, 작품은 지금처럼 전시 상세 화면에서 수동으로 추가.
+- 네이버 검색 API 키는 사용자가 설정 화면에서 직접 입력해 기기에 암호화 저장(`EncryptedSharedPreferences`)한다 — 서버가 없어 키를 앱 내부 말고 숨길 곳이 없기 때문.
+
 ### 향후 구현하고 싶은 기능 (미구현, 로드맵)
 
-- **외부 연동 자동 기록**: 인터넷에서 전시회·작품 정보를 가져와 바로 기록에 반영 (공식 아카이빙 사이트, 미술관 공식 홈페이지 등을 참고 데이터 소스로 우선 검토)
+- **전시 팜플렛 사진 촬영 자동 인식**: 카메라로 전시 팜플렛을 촬영하면 위 링크/검색 가져오기와 동일하게 전시 정보가 자동으로 입력되는 기능 (OCR/이미지 인식 기반, 아이디어만 기록 — 미구현)
+- **사이트별 정밀 파싱**: 자주 쓰는 아카이빙 사이트(예: nowonarts.kr)의 실제 HTML 구조를 확인해 장소·기간·작품 목록까지 정확히 뽑는 전용 파서 추가
 - **사진 코멘트**: 한 전시 스레드 안에서 여러 사진 각각에 코멘트를 달 수 있는 기능
 - **이미지 주석**: 작품 이미지 위에 직접 그림이나 글로 메모를 남기는 기능
 - **3D 큐레이션**: 기록된 작품이나 검색 가능한 모든 작품을 가지고 3D 큐브 공간에서 직접 큐레이팅해보는 기능

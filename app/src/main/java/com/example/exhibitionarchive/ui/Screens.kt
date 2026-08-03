@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -26,8 +28,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,6 +41,8 @@ import androidx.navigation.navArgument
 import coil3.compose.AsyncImage
 import com.example.exhibitionarchive.data.*
 import com.example.exhibitionarchive.util.AudioRecorder
+import com.example.exhibitionarchive.util.ExhibitionImportInfo
+import com.example.exhibitionarchive.util.SearchResultItem
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.io.File
@@ -142,17 +148,82 @@ private fun EmptyState(title: String, body: String, onAction: () -> Unit) {
 @Composable
 private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone: (Long) -> Unit) {
     var title by remember { mutableStateOf("") }; var venue by remember { mutableStateOf("") }; var oneLine by remember { mutableStateOf("") }; var detail by remember { mutableStateOf("") }; var tags by remember { mutableStateOf("") }; var date by remember { mutableStateOf(LocalDate.now().toString()) }; var imagePath by remember { mutableStateOf<String?>(null) }
+    var description by remember { mutableStateOf("") }; var startDate by remember { mutableStateOf("") }; var endDate by remember { mutableStateOf("") }; var officialUrl by remember { mutableStateOf("") }
+    var importUrl by remember { mutableStateOf("") }; var showSearchDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope(); val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let { scope.launch { imagePath = vm.fileStore.copyImage(it) } } }
+    fun applyImport(info: ExhibitionImportInfo) {
+        info.title?.let { title = it }; info.venueName?.let { venue = it }; info.description?.let { description = it }
+        info.startDate?.let { startDate = it }; info.endDate?.let { endDate = it }; info.officialUrl?.let { officialUrl = it }
+        info.posterImageUrl?.let { url -> scope.launch { vm.fileStore.downloadImage(url)?.let { imagePath = it } } }
+    }
+    if (showSearchDialog) ExhibitionSearchDialog(vm, onDismiss = { showSearchDialog = false }, onSelect = { link -> showSearchDialog = false; vm.importExhibitionInfo(link, ::applyImport) })
     Scaffold(topBar = { TopAppBar(title = { Text("전시 추가") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } }) }) { p ->
         LazyColumn(Modifier.fillMaxSize().padding(p), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text("온라인에서 가져오기", style = MaterialTheme.typography.titleMedium) }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(importUrl, { importUrl = it }, label = { Text("전시 링크") }, modifier = Modifier.weight(1f))
+                    Button(onClick = { vm.importExhibitionInfo(importUrl, ::applyImport) }) { Text("가져오기") }
+                }
+            }
+            item { OutlinedButton(onClick = { showSearchDialog = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Search, null); Spacer(Modifier.width(8.dp)); Text("전시명으로 온라인 검색") } }
+            item { HorizontalDivider() }
             item { Box(Modifier.fillMaxWidth().height(220.dp).clickable { launcher.launch("image/*") }, contentAlignment = Alignment.Center) { Poster(imagePath, Modifier.fillMaxSize()); if (imagePath == null) Text("포스터 선택") } }
             item { OutlinedTextField(title, { title = it }, label = { Text("전시명 *") }, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(description, { description = it }, label = { Text("전시 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(startDate, { startDate = it }, label = { Text("전시 시작일") }, modifier = Modifier.weight(1f))
+                    OutlinedTextField(endDate, { endDate = it }, label = { Text("전시 종료일") }, modifier = Modifier.weight(1f))
+                }
+            }
             item { OutlinedTextField(date, { date = it }, label = { Text("관람일 (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(venue, { venue = it }, label = { Text("장소") }, modifier = Modifier.fillMaxWidth()) }
+            item { OutlinedTextField(officialUrl, { officialUrl = it }, label = { Text("공식 링크") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(oneLine, { oneLine = it }, label = { Text("한줄평") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(detail, { detail = it }, label = { Text("상세 감상") }, minLines = 4, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(tags, { tags = it }, label = { Text("태그, 쉼표로 구분") }, modifier = Modifier.fillMaxWidth()) }
-            item { Button(onClick = { runCatching { LocalDate.parse(date) }.onSuccess { vm.createExhibition(title, it, imagePath, venue, oneLine, detail, tags, onDone) } }, modifier = Modifier.fillMaxWidth()) { Text("저장") } }
+            item {
+                Button(
+                    onClick = {
+                        runCatching { LocalDate.parse(date) }.onSuccess {
+                            vm.createExhibition(title, it, imagePath, venue, oneLine, detail, tags, description, startDate.ifBlank { null }, endDate.ifBlank { null }, officialUrl.ifBlank { null }, onDone = onDone)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("저장") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExhibitionSearchDialog(vm: AppViewModel, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+    var query by remember { mutableStateOf("") }; var results by remember { mutableStateOf<List<SearchResultItem>>(emptyList()) }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(20.dp).fillMaxWidth()) {
+                Text("전시명으로 검색", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(query, { query = it }, label = { Text("전시명") }, modifier = Modifier.weight(1f))
+                    Button(onClick = { vm.searchOnline(query) { results = it } }) { Text("검색") }
+                }
+                Spacer(Modifier.height(12.dp))
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    results.forEach { item ->
+                        ListItem(
+                            headlineContent = { Text(item.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = { Text(item.description, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            modifier = Modifier.clickable { onSelect(item.link) }
+                        )
+                    }
+                    if (results.isEmpty()) Text("검색 결과가 없습니다.", Modifier.padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("닫기") }
+            }
         }
     }
 }
@@ -251,6 +322,7 @@ private fun SearchScreen(vm: AppViewModel, onOpen: (Long) -> Unit) {
 @Composable
 private fun SettingsScreen(vm: AppViewModel) {
     val context = LocalContext.current; val scope = rememberCoroutineScope(); var status by remember { mutableStateOf("") }
+    var naverClientId by remember { mutableStateOf("") }; var naverClientSecret by remember { mutableStateOf("") }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> uri?.let { scope.launch { runCatching { vm.exportBackup(it) }.onSuccess { status = "백업 완료" }.onFailure { e -> status = e.message ?: "백업 실패" } } } }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { scope.launch { runCatching { vm.importBackup(it) }.onSuccess { status = "복원 완료" }.onFailure { e -> status = e.message ?: "복원 실패" } } } }
     Scaffold(topBar = { TopAppBar(title = { Text("설정") }) }) { p ->
@@ -259,7 +331,13 @@ private fun SettingsScreen(vm: AppViewModel) {
             Button(onClick = { exportLauncher.launch("exhibition_backup_${LocalDate.now()}.zip") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.FileUpload, null); Spacer(Modifier.width(8.dp)); Text("백업 파일 만들기") }
             OutlinedButton(onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.FileDownload, null); Spacer(Modifier.width(8.dp)); Text("백업에서 복원") }
             if (status.isNotBlank()) Text(status)
-            HorizontalDivider(); Text("이 버전은 로컬 저장 방식이다. 계정과 동기화는 없다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider()
+            Text("전시 정보 자동 가져오기", style = MaterialTheme.typography.titleLarge)
+            Text("전시 링크·이름 검색으로 정보를 자동 입력하려면 네이버 오픈API 검색 키가 필요합니다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(naverClientId, { naverClientId = it }, label = { Text("네이버 Client ID") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(naverClientSecret, { naverClientSecret = it }, label = { Text("네이버 Client Secret") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            Button(onClick = { vm.saveNaverApiKeys(naverClientId, naverClientSecret) }, modifier = Modifier.fillMaxWidth()) { Text("API 키 저장") }
+            HorizontalDivider(); Text("이 버전은 로컬 저장이 기본이다. 전시 정보 자동 가져오기 기능만 인터넷 연결이 필요하다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
