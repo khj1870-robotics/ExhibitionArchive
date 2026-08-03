@@ -14,7 +14,7 @@ export async function renderPage(url) {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
     await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
     await page.waitForTimeout(1_000);
-    return page.content();
+    return await page.content();
   } finally {
     await context.close();
   }
