@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.exhibitionarchive.data.AppRepository
 import com.example.exhibitionarchive.data.AudioRecordEntity
+import com.example.exhibitionarchive.util.AudioRecorder
 import com.example.exhibitionarchive.util.BackupManager
 import com.example.exhibitionarchive.util.ExhibitionImportInfo
 import com.example.exhibitionarchive.util.ExhibitionPageFetcher
@@ -24,13 +25,19 @@ data class PendingArtwork(
     val title: String,
     val artist: String?,
     val review: String?,
-    val imagePath: String?
+    val imagePath: String?,
+    val externalImageUrl: String? = null,
+    val productionYear: String? = null,
+    val medium: String? = null,
+    val dimensions: String? = null,
+    val description: String? = null
 )
 
 @HiltViewModel
 class AppViewModel @Inject constructor(
     private val repository: AppRepository,
     val fileStore: FileStore,
+    private val audioRecorder: AudioRecorder,
     private val backupManager: BackupManager,
     private val pageFetcher: ExhibitionPageFetcher,
     private val searchApi: ExhibitionSearchApi
@@ -69,7 +76,10 @@ class AppViewModel @Inject constructor(
                 description, startDate, endDate, officialUrl
             )
             pendingArtworks.forEach { artwork ->
-                repository.addArtwork(exhibitionId, artwork.title, artwork.artist, artwork.review, artwork.imagePath)
+                repository.addArtwork(
+                    exhibitionId, artwork.title, artwork.artist, artwork.review, artwork.imagePath,
+                    artwork.externalImageUrl, artwork.productionYear, artwork.medium, artwork.dimensions, artwork.description
+                )
             }
             exhibitionId
         }
@@ -163,11 +173,49 @@ class AppViewModel @Inject constructor(
     fun searchArtworks(q: String) = repository.searchArtworks(q)
     fun searchArtists(q: String) = repository.searchArtists(q)
 
-    fun saveAudio(exhibitionId: Long, filePath: String, title: String = "음성 기록", onDone: () -> Unit = {}) {
+    fun startAudioRecording(): String? {
+        val file = fileStore.newAudioFile()
+        return runCatching {
+            audioRecorder.start(file)
+            file.absolutePath
+        }.onFailure {
+            fileStore.deleteManagedFile(file.absolutePath)
+            showMessage(it.message ?: "녹음을 시작하지 못했습니다.")
+        }.getOrNull()
+    }
+
+    fun finishAudioRecording(exhibitionId: Long?, artworkId: Long?, filePath: String, durationMillis: Long) {
+        if (!audioRecorder.stop()) {
+            fileStore.deleteManagedFile(filePath)
+            showMessage("녹음 시간이 너무 짧습니다. 다시 녹음하세요.")
+            return
+        }
         viewModelScope.launch {
-            runCatching { repository.addAudio(AudioRecordEntity(exhibitionId = exhibitionId, title = title, filePath = filePath)) }
-                .onSuccess { onDone() }
-                .onFailure { showMessage(it.message ?: "음성 저장에 실패했습니다.") }
+            runCatching {
+                repository.addAudio(AudioRecordEntity(
+                    exhibitionId = exhibitionId,
+                    artworkId = artworkId,
+                    title = "음성 메모",
+                    filePath = filePath,
+                    durationMillis = durationMillis
+                ))
+            }.onFailure {
+                fileStore.deleteManagedFile(filePath)
+                showMessage(it.message ?: "음성 메모 저장에 실패했습니다.")
+            }
+        }
+    }
+
+    fun cancelAudioRecording(filePath: String) {
+        audioRecorder.stopSafely()
+        fileStore.deleteManagedFile(filePath)
+    }
+
+    fun deleteAudio(id: Long) {
+        viewModelScope.launch {
+            runCatching { repository.deleteAudio(id) }
+                .onSuccess(fileStore::deleteManagedFile)
+                .onFailure { showMessage(it.message ?: "음성 메모 삭제에 실패했습니다.") }
         }
     }
 
@@ -186,5 +234,10 @@ class AppViewModel @Inject constructor(
                 _saving.value = false
             }
         }
+    }
+
+    override fun onCleared() {
+        audioRecorder.stopSafely()
+        super.onCleared()
     }
 }

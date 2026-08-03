@@ -60,6 +60,7 @@ interface ArtworkDao {
 interface MediaDao {
     @Insert suspend fun insertImage(item: ArtworkImageEntity): Long
     @Insert suspend fun insertAudio(item: AudioRecordEntity): Long
+    @Query("SELECT * FROM audio_records WHERE id=:id") suspend fun audio(id: Long): AudioRecordEntity?
     @Query("SELECT * FROM audio_records WHERE exhibitionId=:exhibitionId ORDER BY recordedAt DESC") fun observeAudioForExhibition(exhibitionId: Long): Flow<List<AudioRecordEntity>>
     @Query("SELECT * FROM audio_records WHERE artworkId=:artworkId ORDER BY recordedAt DESC") fun observeAudioForArtwork(artworkId: Long): Flow<List<AudioRecordEntity>>
     @Query("SELECT * FROM artwork_images") suspend fun allImages(): List<ArtworkImageEntity>

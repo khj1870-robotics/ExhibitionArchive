@@ -89,11 +89,39 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         files
     }
 
-    suspend fun addArtwork(exhibitionId: Long, title: String, artistName: String?, review: String?, imagePath: String?): Long = db.withTransaction {
+    suspend fun addArtwork(
+        exhibitionId: Long,
+        title: String,
+        artistName: String?,
+        review: String?,
+        imagePath: String?,
+        externalImageUrl: String? = null,
+        productionYear: String? = null,
+        medium: String? = null,
+        dimensions: String? = null,
+        description: String? = null
+    ): Long = db.withTransaction {
         requireNotNull(db.exhibitionDao().get(exhibitionId)) { "전시를 찾을 수 없습니다." }
         val artistId = findOrCreateArtist(artistName)
-        val id = db.artworkDao().insert(ArtworkEntity(exhibitionId = exhibitionId, artistId = artistId, title = title.trim(), personalReview = review?.trim()?.ifBlank { null }))
-        imagePath?.let { db.mediaDao().insertImage(ArtworkImageEntity(artworkId = id, localPath = it, sourceType = "GALLERY", isRepresentative = true)) }
+        val id = db.artworkDao().insert(ArtworkEntity(
+            exhibitionId = exhibitionId,
+            artistId = artistId,
+            title = title.trim(),
+            productionYear = productionYear.clean(),
+            medium = medium.clean(),
+            dimensions = dimensions.clean(),
+            description = description.clean(),
+            personalReview = review.clean()
+        ))
+        if (imagePath != null || externalImageUrl != null) {
+            db.mediaDao().insertImage(ArtworkImageEntity(
+                artworkId = id,
+                localPath = imagePath,
+                externalUrl = externalImageUrl,
+                sourceType = if (imagePath != null) "GALLERY" else "ONLINE",
+                isRepresentative = true
+            ))
+        }
         id
     }
 
@@ -138,6 +166,12 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
     }
 
     suspend fun addAudio(item: AudioRecordEntity) = db.mediaDao().insertAudio(item)
+
+    suspend fun deleteAudio(id: Long): String? = db.withTransaction {
+        val audio = requireNotNull(db.mediaDao().audio(id)) { "음성 메모를 찾을 수 없습니다." }
+        db.mediaDao().deleteAudio(id)
+        audio.filePath
+    }
     fun searchExhibitions(q: String): Flow<List<ExhibitionEntity>> = db.exhibitionDao().search(q)
     fun searchArtworks(q: String): Flow<List<ArtworkEntity>> = db.artworkDao().search(q)
     fun searchArtists(q: String): Flow<List<ArtistEntity>> = db.artistDao().search(q)

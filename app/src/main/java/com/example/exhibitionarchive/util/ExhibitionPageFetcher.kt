@@ -22,7 +22,18 @@ data class ExhibitionImportInfo(
     val officialUrl: String? = null,
     val venueName: String? = null,
     val startDate: String? = null,
-    val endDate: String? = null
+    val endDate: String? = null,
+    val artworks: List<ImportedArtworkInfo> = emptyList()
+)
+
+data class ImportedArtworkInfo(
+    val title: String,
+    val artistName: String? = null,
+    val imageUrl: String? = null,
+    val productionYear: String? = null,
+    val medium: String? = null,
+    val dimensions: String? = null,
+    val description: String? = null
 )
 
 private data class JsonLdEventInfo(
@@ -84,6 +95,8 @@ class ExhibitionPageFetcher @Inject constructor() {
     internal fun parse(document: Document, fallbackUrl: String): ExhibitionImportInfo {
         val baseUrl = document.baseUri().ifBlank { fallbackUrl }
         val fromJsonLd = parseJsonLd(document)
+        val artworks = (parseJsonLdArtworks(document, baseUrl) + parseCaptionArtworks(document, baseUrl))
+            .distinctBy { "${it.artistName.orEmpty().trim().lowercase()}|${it.title.trim().lowercase()}" }
         val ogTitle = document.select("meta[property=\"og:title\"]").firstOrNull()?.attr("content")
         val ogDescription = document.select("meta[property=\"og:description\"]").firstOrNull()?.attr("content")
             ?: document.select("meta[name=\"description\"]").firstOrNull()?.attr("content")
@@ -97,7 +110,8 @@ class ExhibitionPageFetcher @Inject constructor() {
             officialUrl = canonical?.ifBlank { null } ?: baseUrl,
             venueName = fromJsonLd?.venueName,
             startDate = fromJsonLd?.startDate,
-            endDate = fromJsonLd?.endDate
+            endDate = fromJsonLd?.endDate,
+            artworks = artworks
         )
         return applySitePatch(document, base)
     }
@@ -157,6 +171,85 @@ class ExhibitionPageFetcher @Inject constructor() {
             findEvent(element)?.let { return it }
         }
         return null
+    }
+
+    private fun parseJsonLdArtworks(document: Document, baseUrl: String): List<ImportedArtworkInfo> {
+        val result = mutableListOf<ImportedArtworkInfo>()
+        document.select("script[type=\"application/ld+json\"]").forEach { script ->
+            val element = runCatching { json.parseToJsonElement(script.data()) }.getOrNull() ?: return@forEach
+            collectJsonLdArtworks(element, baseUrl, result)
+        }
+        return result
+    }
+
+    private fun collectJsonLdArtworks(element: JsonElement, baseUrl: String, result: MutableList<ImportedArtworkInfo>) {
+        when (element) {
+            is JsonArray -> element.forEach { collectJsonLdArtworks(it, baseUrl, result) }
+            is JsonObject -> {
+                val type = element["@type"]?.let(::typeAsString).orEmpty()
+                if (ARTWORK_TYPES.any { type.contains(it, ignoreCase = true) }) {
+                    artworkFromJsonLd(element, baseUrl)?.let(result::add)
+                }
+                element.values.forEach { collectJsonLdArtworks(it, baseUrl, result) }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun artworkFromJsonLd(obj: JsonObject, baseUrl: String): ImportedArtworkInfo? {
+        val title = obj["name"]?.asStringOrNull()?.trim()?.ifBlank { null } ?: return null
+        val imageUrl = when (val image = obj["image"]) {
+            is JsonArray -> image.firstNotNullOfOrNull(::imageUrlFrom)
+            null -> null
+            else -> imageUrlFrom(image)
+        }?.let { resolveUrl(baseUrl, it) }
+        return ImportedArtworkInfo(
+            title = title,
+            artistName = creatorName(obj["creator"] ?: obj["artist"]),
+            imageUrl = imageUrl,
+            productionYear = obj["dateCreated"]?.asStringOrNull()?.let { YEAR.find(it)?.value },
+            medium = (obj["artMedium"] ?: obj["material"])?.asStringOrNull()?.trim()?.ifBlank { null },
+            dimensions = obj["size"]?.asStringOrNull()?.trim()?.ifBlank { null },
+            description = obj["description"]?.asStringOrNull()?.trim()?.ifBlank { null }
+        )
+    }
+
+    private fun creatorName(element: JsonElement?): String? = when (element) {
+        is JsonArray -> element.mapNotNull(::creatorName).distinct().joinToString(", ").ifBlank { null }
+        is JsonObject -> element["name"]?.asStringOrNull()?.trim()?.ifBlank { null }
+        is JsonPrimitive -> element.contentOrNull?.trim()?.ifBlank { null }
+        else -> null
+    }
+
+    private fun parseCaptionArtworks(document: Document, baseUrl: String): List<ImportedArtworkInfo> =
+        document.select("img[alt], [role=img][aria-label]").mapNotNull { element ->
+            val caption = if (element.tagName() == "img") element.attr("alt") else element.attr("aria-label")
+            val image = if (element.tagName() == "img") element else element.selectFirst("img")
+            val imageUrl = image?.let { imageElement ->
+                listOf("abs:src", "abs:data-src", "abs:data-original")
+                    .firstNotNullOfOrNull { attribute -> imageElement.attr(attribute).ifBlank { null } }
+                    ?.let { resolveUrl(baseUrl, it) }
+            }
+            artworkFromCaption(caption, imageUrl)
+        }
+
+    private fun artworkFromCaption(rawCaption: String, imageUrl: String?): ImportedArtworkInfo? {
+        val caption = rawCaption.replace(Regex("\\s+"), " ").trim()
+        val match = ARTWORK_CAPTION.matchEntire(caption) ?: return null
+        val artist = match.groupValues[1].trim().ifBlank { return null }
+        val title = match.groupValues[2].trim().ifBlank { return null }
+        val details = match.groupValues[3].trim().trimStart(',').trim()
+        val yearMatch = YEAR.find(details)
+        val medium = yearMatch?.let { details.substring(it.range.last + 1).trim().trimStart(',').trim().ifBlank { null } }
+        return ImportedArtworkInfo(
+            title = title,
+            artistName = artist,
+            imageUrl = imageUrl,
+            productionYear = yearMatch?.value,
+            medium = medium,
+            dimensions = DIMENSIONS.find(details)?.value,
+            description = caption
+        )
     }
 
     private fun findEvent(element: JsonElement): JsonLdEventInfo? = when (element) {
@@ -220,6 +313,10 @@ class ExhibitionPageFetcher @Inject constructor() {
     companion object {
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0 Mobile Safari/537.36"
         private const val INTERPARK_API_BASE = "https://api-ticketfront.interpark.com"
+        private val ARTWORK_TYPES = listOf("VisualArtwork", "Painting", "Sculpture", "Photograph", "Drawing")
+        private val ARTWORK_CAPTION = Regex("^(.{1,100}?),\\s*[‹〈《「『«<](.+?)[›〉》」』»>]\\s*,?\\s*(.*)$")
+        private val YEAR = Regex("(?:19|20)\\d{2}(?:\\s*[-–]\\s*(?:19|20)?\\d{2})?")
+        private val DIMENSIONS = Regex("\\d+(?:\\.\\d+)?\\s*(?:cm|mm|m)?\\s*[×xX]\\s*\\d+(?:\\.\\d+)?(?:\\s*(?:cm|mm|m))?", RegexOption.IGNORE_CASE)
     }
 }
 

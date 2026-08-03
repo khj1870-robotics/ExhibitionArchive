@@ -156,4 +156,64 @@ class ExhibitionPageFetcherTest {
         assertEquals(url, info.officialUrl)
         assertEquals("특별할인 티켓은 현장에서 구매 가능합니다.\n평일 오전 10시 30분 - 오후 8시", info.description)
     }
+
+    @Test
+    fun parse_extractsVisualArtworkFromJsonLd() {
+        val html = """
+            <html><head>
+                <script type="application/ld+json">
+                {
+                  "@context": "https://schema.org",
+                  "@type": "ExhibitionEvent",
+                  "name": "구조화 작품 테스트",
+                  "workFeatured": [
+                    {
+                      "@type": "VisualArtwork",
+                      "name": "파도",
+                      "creator": { "@type": "Person", "name": "김작가" },
+                      "dateCreated": "2024",
+                      "artMedium": "캔버스에 유채",
+                      "size": "100 × 80 cm",
+                      "image": "/images/wave.jpg",
+                      "description": "푸른 파도를 그린 회화"
+                    }
+                  ]
+                }
+                </script>
+            </head><body></body></html>
+        """.trimIndent()
+        val url = "https://example.com/exhibitions/3"
+
+        val info = fetcher.parse(Jsoup.parse(html, url), url)
+
+        assertEquals(1, info.artworks.size)
+        assertEquals("파도", info.artworks.single().title)
+        assertEquals("김작가", info.artworks.single().artistName)
+        assertEquals("2024", info.artworks.single().productionYear)
+        assertEquals("캔버스에 유채", info.artworks.single().medium)
+        assertEquals("100 × 80 cm", info.artworks.single().dimensions)
+        assertEquals("https://example.com/images/wave.jpg", info.artworks.single().imageUrl)
+    }
+
+    @Test
+    fun parse_extractsArtworkCaptionsAndIgnoresPosterAltText() {
+        val html = """
+            <html><body>
+                <img src="/poster.jpg" alt="올해의 작가상 2025" />
+                <img src="/art/one.jpg" alt="김영은, ‹미래의 청취자들에게 I›, 2022, 단채널 비디오, 8분." />
+                <img src="/art/two.jpg" alt="김지평, ‹디바-무당›, 2023, 혼합 재료, 170 × 115 cm." />
+                <img src="/art/duplicate.jpg" alt="김지평, ‹디바-무당›, 2023, 혼합 재료, 170 × 115 cm." />
+            </body></html>
+        """.trimIndent()
+        val url = "https://www.mmca.go.kr/exhibitions/exhibitionsDetail.do?exhId=1"
+
+        val info = fetcher.parse(Jsoup.parse(html, url), url)
+
+        assertEquals(2, info.artworks.size)
+        assertEquals("미래의 청취자들에게 I", info.artworks[0].title)
+        assertEquals("김영은", info.artworks[0].artistName)
+        assertEquals("2022", info.artworks[0].productionYear)
+        assertEquals("https://www.mmca.go.kr/art/one.jpg", info.artworks[0].imageUrl)
+        assertEquals("170 × 115 cm", info.artworks[1].dimensions)
+    }
 }

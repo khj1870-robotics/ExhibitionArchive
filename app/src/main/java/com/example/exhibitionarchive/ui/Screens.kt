@@ -1,5 +1,9 @@
 package com.example.exhibitionarchive.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -25,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import androidx.core.content.ContextCompat
 import coil3.compose.AsyncImage
 import com.example.exhibitionarchive.data.*
 import com.example.exhibitionarchive.util.ExhibitionImportInfo
@@ -125,7 +131,7 @@ private fun ExhibitionRow(item: ExhibitionEntity, onOpen: (Long) -> Unit) {
 @Composable
 private fun Poster(path: String?, modifier: Modifier) {
     if (path.isNullOrBlank()) Box(modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(Icons.Default.Image, null) }
-    else AsyncImage(File(path), null, modifier.clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
+    else AsyncImage(if (path.startsWith("http://") || path.startsWith("https://")) path else File(path), null, modifier.clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.Crop)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,6 +148,24 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone:
     fun applyImport(info: ExhibitionImportInfo) {
         info.title?.let { suppressSuggestions = true; title = it }; info.venueName?.let { venue = it }; info.description?.let { description = it }; info.startDate?.let { startDate = it }; info.endDate?.let { endDate = it }; info.officialUrl?.let { officialUrl = it }
         info.posterImageUrl?.let { url -> scope.launch { vm.fileStore.downloadImage(url)?.let { path -> vm.fileStore.deleteManagedFile(poster); poster = path } } }
+        val existing = pendingArtworks.map { it.importKey() }.toMutableSet()
+        val imported = info.artworks.mapNotNull { artwork ->
+            PendingArtwork(
+                title = artwork.title,
+                artist = artwork.artistName,
+                review = null,
+                imagePath = null,
+                externalImageUrl = artwork.imageUrl,
+                productionYear = artwork.productionYear,
+                medium = artwork.medium,
+                dimensions = artwork.dimensions,
+                description = artwork.description
+            ).takeIf { existing.add(it.importKey()) }
+        }
+        if (imported.isNotEmpty()) {
+            pendingArtworks = pendingArtworks + imported
+            vm.showMessage("공개된 작품 ${imported.size}개를 함께 가져왔습니다.")
+        }
     }
     LaunchedEffect(title) {
         suggestions = emptyList()
@@ -155,7 +179,7 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone:
             item { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(importUrl, { importUrl = it }, Modifier.weight(1f), label = { Text("전시 링크") }); Button({ vm.importExhibitionInfo(importUrl, ::applyImport) }) { Text("가져오기") } } }
             item { Box(Modifier.fillMaxWidth().height(220.dp).clickable { imageLauncher.launch("image/*") }, contentAlignment = Alignment.Center) { Poster(poster, Modifier.fillMaxSize()); Text(if (poster == null) "포스터 선택" else "포스터 변경", Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = .8f)).padding(8.dp)) } }
             item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("전시명 *") }, isError = title.isBlank()) }
-            if (suggestions.isNotEmpty()) item { Column { Text("검색된 전시", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); suggestions.forEach { result -> ListItem({ Text(result.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(result.description, maxLines = 2, overflow = TextOverflow.Ellipsis) }, modifier = Modifier.clickable { suggestions = emptyList(); applyImport(result.toImportInfo()) }) } } }
+            if (suggestions.isNotEmpty()) item { Column { Text("검색된 전시", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium); suggestions.forEach { result -> ListItem({ Text(result.title, maxLines = 1, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(result.description, maxLines = 2, overflow = TextOverflow.Ellipsis) }, modifier = Modifier.clickable { suggestions = emptyList(); applyImport(result.toImportInfo()); if (result.link.isNotBlank()) vm.importExhibitionInfo(result.link, ::applyImport) }) } } }
             item { OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("전시 설명") }, minLines = 2) }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(startDate, { startDate = it }, Modifier.weight(1f), label = { Text("전시 시작일") }); OutlinedTextField(endDate, { endDate = it }, Modifier.weight(1f), label = { Text("전시 종료일") }) } }
             item { OutlinedButton({ dateDialog = true }, Modifier.fillMaxWidth()) { Icon(Icons.Default.CalendarMonth, null); Spacer(Modifier.width(8.dp)); Text("관람일  $date") } }
@@ -166,7 +190,7 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone:
             item { OutlinedTextField(tags, { tags = it }, Modifier.fillMaxWidth(), label = { Text("태그, 쉼표로 구분") }) }
             item { HorizontalDivider() }
             item { OutlinedButton({ artworkDialog = true }, Modifier.fillMaxWidth()) { Icon(Icons.Default.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("작품도 함께 추가") } }
-            if (pendingArtworks.isNotEmpty()) { item { Text("추가할 작품 ${pendingArtworks.size}개", style = MaterialTheme.typography.titleSmall) }; items(pendingArtworks) { artwork -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Poster(artwork.imagePath, Modifier.size(52.dp)); Spacer(Modifier.width(8.dp)); Column(Modifier.weight(1f)) { Text(artwork.title, fontWeight = FontWeight.SemiBold); artwork.artist?.let { Text(it, style = MaterialTheme.typography.bodySmall) } }; IconButton({ vm.fileStore.deleteManagedFile(artwork.imagePath); pendingArtworks = pendingArtworks - artwork }) { Icon(Icons.Default.Close, "작품 제거") } } } }
+            if (pendingArtworks.isNotEmpty()) { item { Text("추가할 작품 ${pendingArtworks.size}개", style = MaterialTheme.typography.titleSmall) }; items(pendingArtworks) { artwork -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Poster(artwork.imagePath ?: artwork.externalImageUrl, Modifier.size(52.dp)); Spacer(Modifier.width(8.dp)); Column(Modifier.weight(1f)) { Text(artwork.title, fontWeight = FontWeight.SemiBold); artwork.artist?.let { Text(it, style = MaterialTheme.typography.bodySmall) } }; IconButton({ vm.fileStore.deleteManagedFile(artwork.imagePath); pendingArtworks = pendingArtworks - artwork }) { Icon(Icons.Default.Close, "작품 제거") } } } }
             item { Button({ vm.createExhibition(title, date, poster, venue, oneLine, detail, tags, description, startDate.ifBlank { null }, endDate.ifBlank { null }, officialUrl.ifBlank { null }, pendingArtworks, onDone) }, Modifier.fillMaxWidth(), enabled = title.isNotBlank() && !saving) { if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("저장") } }
         }
     }
@@ -231,11 +255,12 @@ private fun AppDatePicker(date: LocalDate, onDismiss: () -> Unit, onSelected: (L
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ExhibitionDetailScreen(vm: AppViewModel, id: Long, onBack: () -> Unit, onEdit: () -> Unit, onAddArtwork: () -> Unit, onOpenArtwork: (Long) -> Unit) {
-    val exhibition by vm.exhibition(id).collectAsStateWithLifecycle(null); val visits by vm.visitsFor(id).collectAsStateWithLifecycle(emptyList()); val artworks by vm.artworksFor(id).collectAsStateWithLifecycle(emptyList()); val tags by vm.tagsFor(id).collectAsStateWithLifecycle(emptyList())
+    val exhibition by vm.exhibition(id).collectAsStateWithLifecycle(null); val visits by vm.visitsFor(id).collectAsStateWithLifecycle(emptyList()); val artworks by vm.artworksFor(id).collectAsStateWithLifecycle(emptyList()); val tags by vm.tagsFor(id).collectAsStateWithLifecycle(emptyList()); val audio by vm.audioFor(id).collectAsStateWithLifecycle(emptyList())
     Scaffold(topBar = { TopAppBar({ Text(exhibition?.title ?: "전시") }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "뒤로") } }, actions = { IconButton(onEdit) { Icon(Icons.Default.Edit, "수정") } }) }, floatingActionButton = { ExtendedFloatingActionButton(onClick = onAddArtwork, icon = { Icon(Icons.Default.AddPhotoAlternate, null) }, text = { Text("작품 추가") }) }) { p ->
         LazyColumn(Modifier.padding(p), contentPadding = PaddingValues(bottom = 100.dp)) {
             item { Poster(exhibition?.posterPath, Modifier.fillMaxWidth().height(300.dp)) }
             item { Column(Modifier.padding(20.dp)) { Text(exhibition?.title.orEmpty(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); exhibition?.venueName?.let { Text(it) }; visits.firstOrNull()?.let { v -> Spacer(Modifier.height(12.dp)); Text(v.visitedAt, color = MaterialTheme.colorScheme.primary); v.oneLineReview?.let { Text("“$it”", style = MaterialTheme.typography.titleMedium) }; v.detailedReview?.let { Text(it, Modifier.padding(top = 8.dp)) } }; if (tags.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 12.dp)) { items(tags) { AssistChip({}, { Text("#${it.name}") }) } } } }
+            item { VoiceMemoSection(vm, audio, exhibitionId = id) }
             item { SectionTitle("작품 ${artworks.size}") }
             if (artworks.isEmpty()) item { Text("아직 등록한 작품이 없습니다.", Modifier.padding(horizontal = 20.dp)) }
             items(artworks, key = { it.artwork.id }) { card -> ArtworkRow(card, onOpenArtwork) }
@@ -244,7 +269,7 @@ private fun ExhibitionDetailScreen(vm: AppViewModel, id: Long, onBack: () -> Uni
 }
 
 @Composable
-private fun ArtworkRow(card: ArtworkCard, onOpen: (Long) -> Unit) { Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable { onOpen(card.artwork.id) }) { Row(Modifier.padding(12.dp)) { Poster(card.images.firstOrNull { it.isRepresentative }?.localPath ?: card.images.firstOrNull()?.localPath, Modifier.size(90.dp)); Spacer(Modifier.width(12.dp)); Column { Text(card.artwork.title, fontWeight = FontWeight.Bold); card.artist?.let { Text(it.name) }; card.artwork.personalReview?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } } } } }
+private fun ArtworkRow(card: ArtworkCard, onOpen: (Long) -> Unit) { val image = card.images.firstOrNull { it.isRepresentative } ?: card.images.firstOrNull(); Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable { onOpen(card.artwork.id) }) { Row(Modifier.padding(12.dp)) { Poster(image?.localPath ?: image?.externalUrl, Modifier.size(90.dp)); Spacer(Modifier.width(12.dp)); Column { Text(card.artwork.title, fontWeight = FontWeight.Bold); card.artist?.let { Text(it.name) }; card.artwork.personalReview?.let { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } } } } }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -259,21 +284,107 @@ private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onBack: ()
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ArtworkDetailScreen(vm: AppViewModel, id: Long, onBack: () -> Unit, onEdit: () -> Unit, onDeleted: () -> Unit) {
-    val card by vm.artwork(id).collectAsStateWithLifecycle(null); var confirmDelete by remember { mutableStateOf(false) }; val scope = rememberCoroutineScope()
+    val card by vm.artwork(id).collectAsStateWithLifecycle(null); val audio by vm.audioForArtwork(id).collectAsStateWithLifecycle(emptyList()); var confirmDelete by remember { mutableStateOf(false) }; val scope = rememberCoroutineScope()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> uris.forEach { uri -> scope.launch { runCatching { vm.fileStore.copyImage(uri) }.onSuccess { vm.addArtworkImage(id, it) }.onFailure { e -> vm.showMessage(e.message ?: "이미지를 가져오지 못했습니다.") } } } }
     val item = card
     if (item == null) { LoadingScreen(); return }
     Scaffold(topBar = { TopAppBar({ Text(item.artwork.title) }, navigationIcon = { IconButton(onBack) { Icon(Icons.Default.ArrowBack, "뒤로") } }, actions = { IconButton(onEdit) { Icon(Icons.Default.Edit, "수정") }; IconButton({ confirmDelete = true }) { Icon(Icons.Default.Delete, "삭제", tint = MaterialTheme.colorScheme.error) } }) }) { p ->
         LazyColumn(Modifier.padding(p), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { if (item.images.isEmpty()) Poster(null, Modifier.fillMaxWidth().height(260.dp)) else LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(item.images, key = { it.id }) { image -> Box { Poster(image.localPath, Modifier.size(240.dp)); IconButton({ vm.deleteArtworkImage(image.id) }, Modifier.align(Alignment.TopEnd).background(MaterialTheme.colorScheme.surface.copy(alpha = .8f))) { Icon(Icons.Default.Delete, "사진 삭제") } } } } }
+            item { if (item.images.isEmpty()) Poster(null, Modifier.fillMaxWidth().height(260.dp)) else LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(item.images, key = { it.id }) { image -> Box { Poster(image.localPath ?: image.externalUrl, Modifier.size(240.dp)); IconButton({ vm.deleteArtworkImage(image.id) }, Modifier.align(Alignment.TopEnd).background(MaterialTheme.colorScheme.surface.copy(alpha = .8f))) { Icon(Icons.Default.Delete, "사진 삭제") } } } } }
             item { OutlinedButton({ launcher.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Default.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("사진 추가") } }
             item { Text(item.artwork.title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); item.artist?.let { Text(it.name, style = MaterialTheme.typography.titleMedium) } }
             item { ArtworkMetadata(item.artwork) }
             item.artwork.description?.let { value -> item { Text("작품 설명", fontWeight = FontWeight.Bold); Text(value) } }
             item.artwork.personalReview?.let { value -> item { Text("내 감상", fontWeight = FontWeight.Bold); Text(value) } }
+            item { VoiceMemoSection(vm, audio, artworkId = id) }
         }
     }
     if (confirmDelete) ConfirmDeleteDialog("작품을 삭제할까요?", "등록한 사진도 앱 내부에서 함께 삭제됩니다.", { confirmDelete = false }) { confirmDelete = false; vm.deleteArtwork(id, onDeleted) }
+}
+
+@Composable
+private fun VoiceMemoSection(vm: AppViewModel, records: List<AudioRecordEntity>, exhibitionId: Long? = null, artworkId: Long? = null) {
+    val context = LocalContext.current
+    var recordingPath by remember(exhibitionId, artworkId) { mutableStateOf<String?>(null) }
+    var recordingStartedAt by remember(exhibitionId, artworkId) { mutableLongStateOf(0L) }
+    var playingId by remember(exhibitionId, artworkId) { mutableStateOf<Long?>(null) }
+    var player by remember(exhibitionId, artworkId) { mutableStateOf<MediaPlayer?>(null) }
+
+    fun stopPlayback() {
+        player?.let { current -> runCatching { current.stop() }; current.release() }
+        player = null
+        playingId = null
+    }
+    fun beginRecording() {
+        stopPlayback()
+        vm.startAudioRecording()?.let { path ->
+            recordingPath = path
+            recordingStartedAt = SystemClock.elapsedRealtime()
+        }
+    }
+    fun play(record: AudioRecordEntity) {
+        if (playingId == record.id) { stopPlayback(); return }
+        val path = record.filePath
+        if (path.isNullOrBlank() || !File(path).exists()) { vm.showMessage("음성 파일을 찾을 수 없습니다."); return }
+        stopPlayback()
+        val next = MediaPlayer()
+        runCatching {
+            next.setDataSource(path)
+            next.setOnCompletionListener { completed ->
+                completed.release()
+                if (player === completed) player = null
+                playingId = null
+            }
+            next.prepare()
+            next.start()
+            player = next
+            playingId = record.id
+        }.onFailure {
+            next.release()
+            vm.showMessage("음성 메모를 재생하지 못했습니다.")
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) beginRecording() else vm.showMessage("음성 메모를 녹음하려면 마이크 권한이 필요합니다.")
+    }
+    val latestRecordingPath by rememberUpdatedState(recordingPath)
+    val latestPlayer by rememberUpdatedState(player)
+    DisposableEffect(exhibitionId, artworkId) {
+        onDispose {
+            latestPlayer?.release()
+            latestRecordingPath?.let(vm::cancelAudioRecording)
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("음성 메모", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            if (recordingPath == null) {
+                FilledTonalButton(onClick = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) beginRecording()
+                    else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }) { Icon(Icons.Default.Mic, null); Spacer(Modifier.width(6.dp)); Text("녹음") }
+            } else {
+                Button(onClick = {
+                    val path = recordingPath ?: return@Button
+                    val duration = SystemClock.elapsedRealtime() - recordingStartedAt
+                    vm.finishAudioRecording(exhibitionId, artworkId, path, duration)
+                    recordingPath = null
+                }) { Icon(Icons.Default.Stop, null); Spacer(Modifier.width(6.dp)); Text("저장") }
+            }
+        }
+        if (recordingPath != null) Text("녹음 중입니다. 저장을 누르면 이 기록에 첨부됩니다.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        if (records.isEmpty() && recordingPath == null) Text("아직 녹음한 메모가 없습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        records.forEach { record ->
+            ListItem(
+                headlineContent = { Text(record.title ?: "음성 메모") },
+                supportingContent = { record.durationMillis?.let { Text(formatDuration(it)) } },
+                leadingContent = { IconButton({ play(record) }, enabled = !record.filePath.isNullOrBlank()) { Icon(if (playingId == record.id) Icons.Default.Stop else Icons.Default.PlayArrow, if (playingId == record.id) "재생 중지" else "재생") } },
+                trailingContent = { IconButton({ if (playingId == record.id) stopPlayback(); vm.deleteAudio(record.id) }) { Icon(Icons.Default.Delete, "음성 메모 삭제") } }
+            )
+        }
+    }
 }
 
 @Composable private fun ArtworkMetadata(item: ArtworkEntity) { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { listOf("제작연도" to item.productionYear, "재료" to item.medium, "크기" to item.dimensions, "전시 섹션" to item.sectionName).forEach { (label, value) -> value?.let { Row { Text("$label  ", fontWeight = FontWeight.Bold); Text(it) } } } } }
@@ -288,6 +399,12 @@ private fun ArtworkEditScreen(vm: AppViewModel, id: Long, onBack: () -> Unit) {
 
 @Composable private fun LoadingScreen() { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
 @Composable private fun ConfirmDeleteDialog(title: String, body: String, onDismiss: () -> Unit, onConfirm: () -> Unit) { AlertDialog(onDismiss, { TextButton(onConfirm) { Text("삭제", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onDismiss) { Text("취소") } }, title = { Text(title) }, text = { Text(body) }) }
+
+private fun PendingArtwork.importKey() = "${artist.orEmpty().trim().lowercase()}|${title.trim().lowercase()}"
+private fun formatDuration(millis: Long): String {
+    val totalSeconds = millis.coerceAtLeast(0) / 1_000
+    return "${totalSeconds / 60}:${(totalSeconds % 60).toString().padStart(2, '0')}"
+}
 
 private const val CALENDAR_CENTER_PAGE = 5000
 private const val CALENDAR_PAGE_COUNT = 10000

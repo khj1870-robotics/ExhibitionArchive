@@ -101,7 +101,7 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
   - `AppRepository.kt`: the only class that touches the DAOs from the UI/ViewModel side. Multi-table writes (`createExhibition`, `addArtwork`, `replaceFromBackup`) are wrapped in `db.withTransaction {}`. Add new cross-entity operations here rather than calling multiple DAOs from the ViewModel.
   - `DatabaseModule.kt`: Hilt `@Module` providing the singleton `AppDatabase`.
 - **`ui/`** — one shared `AppViewModel` (`@HiltViewModel`) exposing repository `Flow`s as `stateIn(..., WhileSubscribed(5_000))` `StateFlow`s, plus a `_message`/`message` `StateFlow` used for one-shot snackbar errors (set the message, screen shows it via `LaunchedEffect` + `SnackbarHostState`, then calls `clearMessage()`). `Screens.kt` contains **all** Composable screens and `ExhibitionArchiveRoot`, which owns a single `NavHost` with string routes for home/calendar/archive/settings/search, exhibition create/detail/edit, and artwork create/detail/edit. There is no separate `navigation/` package — routes are defined inline in `ExhibitionArchiveRoot`.
-- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs); `downloadImage(url)` saves a remotely fetched poster into the same `images/` dir for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) but is not yet wired into any screen (see README "아직 보완할 부분"). `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` extracts `schema.org`/`Event` JSON-LD and OpenGraph fields, then applies verified site-specific handling for SeMA, Nowon Arts, and Interpark ticket pages. `ExhibitionSearchApi` downloads the collector's unified JSON dataset, caches it for ten minutes, and matches title/venue/source/description locally. It does not transmit the search query.
+- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs); `downloadImage(url)` saves a remotely fetched poster into the same `images/` dir for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) and the exhibition/artwork detail screens provide record, playback, and delete controls. `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` extracts `schema.org`/`Event` JSON-LD and OpenGraph fields, plus explicitly identified `VisualArtwork` data and artwork image captions, then applies verified site-specific handling for SeMA, Nowon Arts, and Interpark ticket pages. `ExhibitionSearchApi` downloads the collector's unified JSON dataset, caches it for ten minutes, and matches title/venue/source/description locally. It does not transmit the search query.
 
 - **`collector/`** — Node.js collector with one adapter per public source (Art-map, Neolook, Artbava, MMCA, Daelim Museum, Leeum, SeMA). `.github/workflows/collect-exhibitions.yml` tests the adapters and publishes `exhibitions.json` to the stable `exhibition-data` GitHub Release every six hours. A source failure must not erase other sources or its last successful cached entries.
 
@@ -131,13 +131,13 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
 - 전시 상세 화면에서 작품 빠르게 추가
 - 로컬 데이터베이스(Room) 저장, 사진 앱 내부 보관
 - JSON+ZIP 전체 백업 및 복원 (교체 복원만 지원, 병합 복원은 미구현)
-- 음성 녹음용 `AudioRecorder` 코드는 있으나 실제 녹음·재생 UI는 아직 연결되지 않음
+- 전시·작품별 음성 메모 녹음·재생·삭제
 
 ### 외부 연동 자동 기록 (부분 구현됨)
 
 `ExhibitionCreateScreen`에서 전시 링크 붙여넣기(범용 OG 메타태그 + `schema.org`/`Event` JSON-LD 파싱) 또는 7개 사이트 공개 목록의 전시명 검색 → 검색 결과 선택 시 제목/포스터/장소/기간/공식 링크가 자동으로 채워지는 기능은 구현됨. 다만:
 - **일부 사이트만 정밀 파싱** — 서울시립미술관, 노원문화재단, 인터파크 티켓은 전용 처리가 있고, 그 밖의 사이트는 범용 메타데이터가 없는 필드가 빈칸으로 남을 수 있음.
-- **작품 목록 자동 추출은 범위에서 제외** — 사이트마다 구조가 달라 범용 파싱으로 신뢰성 있게 뽑을 수 없어서, 작품은 지금처럼 전시 상세 화면에서 수동으로 추가.
+- **작품 목록은 공개된 경우에만 자동 추출** — `VisualArtwork` 구조화 데이터 또는 작가·작품명이 명시된 이미지 캡션만 가져오며, 작품명이 없는 이미지나 홍보 배너는 제외한다. 사이트가 작품 목록을 공개하지 않으면 기존처럼 수동으로 추가한다.
 - 전시명 검색은 6시간마다 갱신되는 통합 JSON을 내려받아 기기에서 수행한다. API 키가 필요 없고 검색어는 서버로 전송되지 않는다.
 
 ### 향후 구현하고 싶은 기능 (미구현, 로드맵)
