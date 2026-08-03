@@ -31,6 +31,13 @@ jobs:
         run: npm ci
       - name: Test collectors
         run: npm test
+      - name: Test live collection
+        run: node src/collect.mjs --output output/exhibitions.json
+      - name: Upload collection result
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-exhibition-dataset
+          path: collector/output/exhibitions.json
 
   publish:
     if: github.event_name != 'pull_request'
