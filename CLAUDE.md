@@ -2,6 +2,74 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Behavioral Guidelines
+
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+### 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+**항상 한국말로 답변할 것.**
+
 ## Project overview
 
 전시기록 (Exhibition Archive) is a single-module Android MVP app for logging exhibition visits: visit dates, posters, one-line and detailed reviews, artworks/photos, artists, and tags, all stored locally. Package: `com.example.exhibitionarchive`. Source and UI strings are in Korean.
@@ -45,6 +113,32 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
 2. Register the entity in `AppDatabase.kt`'s `entities = [...]` list; bump `version` and supply a `Migration` if the app has shipped (currently `version = 1`, no migrations exist yet — schema-breaking changes are done by editing entities directly since there's no installed base).
 3. Add DAO methods in `Dao.kt` (Flow-returning for UI observation, suspend for one-shot writes; add `allNow()`/`insertAll()` if it must participate in backup).
 4. Wire it through `AppRepository.kt`, then `AppViewModel.kt`, then a screen in `Screens.kt`.
+
+## 제품 비전 & 로드맵
+
+이 앱은 단순 전시 목록 앱이 아니라, **전시·작품·작가·감상을 서로 연결해서 쌓아가는 개인 전시 기록 시스템**이다. 새 기능을 설계할 때는 이 방향성(기록들 간의 연결)을 우선 고려한다.
+
+### 현재 구현된 핵심 기능 (README 기준)
+
+- 전시명, 관람일, 장소, 포스터 등록
+- 한줄평과 상세 감상 기록
+- 전시별 작품 사진, 작품명, 작가명, 개인 감상 저장
+- 작가와 태그 기준으로 기록 분류
+- 관람일 기반 달력 보기
+- 전시·작품·작가 검색
+- 전시 상세 화면에서 작품 빠르게 추가
+- 로컬 데이터베이스(Room) 저장, 사진 앱 내부 보관
+- JSON+ZIP 전체 백업 및 복원 (교체 복원만 지원, 병합 복원은 미구현)
+- 음성 녹음용 `AudioRecorder` 코드는 있으나 실제 녹음·재생 UI는 아직 연결되지 않음
+
+### 향후 구현하고 싶은 기능 (미구현, 로드맵)
+
+- **외부 연동 자동 기록**: 인터넷에서 전시회·작품 정보를 가져와 바로 기록에 반영 (공식 아카이빙 사이트, 미술관 공식 홈페이지 등을 참고 데이터 소스로 우선 검토)
+- **사진 코멘트**: 한 전시 스레드 안에서 여러 사진 각각에 코멘트를 달 수 있는 기능
+- **이미지 주석**: 작품 이미지 위에 직접 그림이나 글로 메모를 남기는 기능
+- **3D 큐레이션**: 기록된 작품이나 검색 가능한 모든 작품을 가지고 3D 큐브 공간에서 직접 큐레이팅해보는 기능
+- **성능 최적화**: 앱 로딩 및 사용 중 렉이 최대한 없도록 최적화
+- 카메라 직접 촬영, 작품 상세 수정/삭제 화면, 백업에 이미지·음성 바이너리 포함, 병합 복원, DAO/UI 자동화 테스트 확대, 화면 디자인 다듬기 (README "아직 보완할 부분"에 기재된 기존 항목)
 
 ## Conventions
 
