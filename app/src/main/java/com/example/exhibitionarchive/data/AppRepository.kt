@@ -13,6 +13,8 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
     val visits = db.visitDao().observeAll()
     val artists = db.artistDao().observeAll()
     val tags = db.tagDao().observeAll()
+    val artistUsage = db.artistDao().observeUsage()
+    val tagUsage = db.tagDao().observeUsage()
 
     fun exhibition(id: Long) = db.exhibitionDao().observe(id)
     fun visitsForExhibition(id: Long) = db.visitDao().observeForExhibition(id)
@@ -23,6 +25,7 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
     fun audioForExhibition(id: Long) = db.mediaDao().observeAudioForExhibition(id)
     fun visitNotesForExhibition(id: Long) = db.visitNoteDao().observeForExhibition(id)
     fun tagsForExhibition(id: Long) = db.tagDao().observeForExhibition(id)
+    fun tagsForArtwork(id: Long) = db.tagDao().observeForArtwork(id)
 
     suspend fun createExhibition(
         title: String,
@@ -75,7 +78,8 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         sourceUrl: String? = null,
         medium: String? = null,
         description: String? = null,
-        audioClips: List<Pair<String, Long?>> = emptyList()
+        audioClips: List<Pair<String, Long?>> = emptyList(),
+        tagNames: List<String> = emptyList()
     ): Long = db.withTransaction {
         val artistId = artistName?.trim()?.takeIf { it.isNotEmpty() }?.let { name ->
             db.artistDao().insert(ArtistEntity(name = name))
@@ -97,14 +101,16 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         audioClips.forEach { (path, duration) ->
             db.mediaDao().insertAudio(AudioRecordEntity(artworkId = id, filePath = path, durationMillis = duration))
         }
+        if (tagNames.isNotEmpty()) db.tagDao().setArtworkTags(id, tagNames)
         id
     }
 
-    suspend fun updateArtwork(artwork: ArtworkEntity, artistName: String?, newImagePaths: List<String>, newAudioClips: List<Pair<String, Long?>>) = db.withTransaction {
+    suspend fun updateArtwork(artwork: ArtworkEntity, artistName: String?, newImagePaths: List<String>, newAudioClips: List<Pair<String, Long?>>, tagNames: List<String>) = db.withTransaction {
         val artistId = artistName?.trim()?.takeIf { it.isNotEmpty() }?.let { name -> db.artistDao().insert(ArtistEntity(name = name)) }
         db.artworkDao().update(artwork.copy(artistId = artistId, updatedAt = System.currentTimeMillis()))
         newImagePaths.forEach { path -> db.mediaDao().insertImage(ArtworkImageEntity(artworkId = artwork.id, localPath = path, sourceType = "GALLERY")) }
         newAudioClips.forEach { (path, duration) -> db.mediaDao().insertAudio(AudioRecordEntity(artworkId = artwork.id, filePath = path, durationMillis = duration)) }
+        db.tagDao().setArtworkTags(artwork.id, tagNames)
     }
 
     suspend fun deleteArtworkImage(id: Long) = db.mediaDao().deleteImage(id)

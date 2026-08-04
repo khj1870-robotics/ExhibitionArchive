@@ -39,6 +39,7 @@ interface ArtistDao {
     @Update suspend fun update(item: ArtistEntity)
     @Query("SELECT * FROM artists") suspend fun allNow(): List<ArtistEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<ArtistEntity>)
+    @Query("SELECT a.*, COUNT(w.id) as count FROM artists a LEFT JOIN artworks w ON w.artistId = a.id GROUP BY a.id") fun observeUsage(): Flow<List<ArtistUsage>>
 }
 
 @Dao
@@ -100,8 +101,18 @@ interface TagDao {
             linkExhibition(ExhibitionTagCrossRef(exhibitionId, tagId))
         }
     }
+    @Transaction suspend fun setArtworkTags(artworkId: Long, names: List<String>) {
+        clearArtworkLinks(artworkId)
+        names.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase() }.forEach { name ->
+            val normalized = name.lowercase()
+            val existing = find(normalized)
+            val tagId = existing?.id ?: insert(TagEntity(name = name, normalizedName = normalized)).takeIf { it > 0 } ?: find(normalized)!!.id
+            linkArtwork(ArtworkTagCrossRef(artworkId, tagId))
+        }
+    }
     @Query("SELECT t.* FROM tags t INNER JOIN exhibition_tags x ON t.id=x.tagId WHERE x.exhibitionId=:id ORDER BY t.name") fun observeForExhibition(id: Long): Flow<List<TagEntity>>
     @Query("SELECT t.* FROM tags t INNER JOIN artwork_tags x ON t.id=x.tagId WHERE x.artworkId=:id ORDER BY t.name") fun observeForArtwork(id: Long): Flow<List<TagEntity>>
+    @Query("SELECT t.*, COUNT(*) as count FROM tags t INNER JOIN (SELECT tagId FROM exhibition_tags UNION ALL SELECT tagId FROM artwork_tags) u ON u.tagId = t.id GROUP BY t.id") fun observeUsage(): Flow<List<TagUsage>>
     @Query("SELECT * FROM tags") suspend fun allNow(): List<TagEntity>
     @Query("SELECT * FROM exhibition_tags") suspend fun allExhibitionRefs(): List<ExhibitionTagCrossRef>
     @Query("SELECT * FROM artwork_tags") suspend fun allArtworkRefs(): List<ArtworkTagCrossRef>

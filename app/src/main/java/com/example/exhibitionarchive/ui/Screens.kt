@@ -146,7 +146,12 @@ fun ExhibitionArchiveRoot(vm: AppViewModel = hiltViewModel()) {
 private fun HomeScreen(vm: AppViewModel, onCreate: () -> Unit, onOpen: (Long) -> Unit, onSearch: () -> Unit, onAddArtwork: (Long) -> Unit) {
     val exhibitions by vm.visitedExhibitions.collectAsStateWithLifecycle()
     val visits by vm.visits.collectAsStateWithLifecycle()
+    val tagUsage by vm.tagUsage.collectAsStateWithLifecycle()
     val gridColumns by vm.gridColumns.collectAsStateWithLifecycle()
+    val exhibitionTitleById = remember(exhibitions) { exhibitions.associate { it.id to it.title } }
+    val randomReviewVisit = remember(visits) { visits.filter { !it.oneLineReview.isNullOrBlank() }.randomOrNull() }
+    val topTag = remember(tagUsage) { tagUsage.maxByOrNull { it.count } }
+    val topRatedVisit = remember(visits) { visits.filter { it.rating != null }.maxByOrNull { it.rating!! } }
     Scaffold(
         topBar = { TopAppBar(title = { Text("전시기록") }, actions = { IconButton(onClick = onSearch) { Icon(Icons.Default.Search, "검색") } }) },
         floatingActionButton = { AddMenuButton(vm, onCreateExhibition = onCreate, onAddArtwork = onAddArtwork) }
@@ -156,6 +161,25 @@ private fun HomeScreen(vm: AppViewModel, onCreate: () -> Unit, onOpen: (Long) ->
                 Column(Modifier.padding(20.dp)) {
                     Text("이번 달 ${visits.count { it.visitedAt.startsWith(YearMonth.now().toString()) }}회 관람", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp)); Text("포스터와 감상을 날짜별로 쌓는다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (randomReviewVisit != null || topTag != null || topRatedVisit != null) {
+                        Spacer(Modifier.height(16.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            randomReviewVisit?.let { v ->
+                                Card(Modifier.fillMaxWidth().clickable { onOpen(v.exhibitionId) }) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        Text("“${v.oneLineReview}”", style = MaterialTheme.typography.titleSmall)
+                                        exhibitionTitleById[v.exhibitionId]?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
+                                    }
+                                }
+                            }
+                            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                topTag?.let { t -> AssistChip(onClick = {}, leadingIcon = { Icon(Icons.Default.Tag, null) }, label = { Text("가장 많이 쓴 태그 #${t.tag.name}") }) }
+                                topRatedVisit?.let { v ->
+                                    AssistChip(onClick = { onOpen(v.exhibitionId) }, leadingIcon = { Icon(Icons.Default.Star, null) }, label = { Text("최고 평점 ${exhibitionTitleById[v.exhibitionId] ?: ""} ${v.rating?.toInt()}점") })
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if (exhibitions.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("아직 기록한 전시가 없습니다.", "첫 전시를 등록하세요.", onCreate) }
@@ -382,7 +406,32 @@ private fun RatingBar(rating: Float, onRatingChange: ((Float) -> Unit)? = null) 
     }
 }
 
-private data class PendingArtwork(val title: String, val artist: String?, val review: String?, val imagePaths: List<String>, val sourceUrl: String?, val medium: String?, val description: String?, val audioClips: List<Pair<String, Long?>>)
+private data class PendingArtwork(val title: String, val artist: String?, val review: String?, val imagePaths: List<String>, val sourceUrl: String?, val medium: String?, val description: String?, val audioClips: List<Pair<String, Long?>>, val tags: String)
+
+private val TAG_PRESETS = listOf(
+    "다다이즘", "인상주의", "후기인상주의", "입체주의", "초현실주의", "표현주의", "추상표현주의", "미니멀리즘", "팝아트",
+    "아르누보", "아르데코", "바로크", "로코코", "신고전주의", "낭만주의", "사실주의", "야수파", "미래주의", "구성주의",
+    "개념미술", "키네틱아트", "옵아트", "대지미술", "설치미술", "미디어아트",
+    "회화", "조각", "판화", "드로잉", "콜라주", "사진", "도자공예", "섬유공예", "건축", "그래피티", "일러스트레이션", "민화", "단색화"
+)
+
+@Composable
+private fun TagInputField(value: String, onValueChange: (String) -> Unit, label: String = "태그, 쉼표로 구분") {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedTextField(value, onValueChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val selected = value.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            TAG_PRESETS.forEach { preset ->
+                val already = selected.contains(preset.lowercase())
+                AssistChip(
+                    onClick = { if (!already) onValueChange(if (value.isBlank()) preset else "$value, $preset") },
+                    label = { Text(preset) },
+                    enabled = !already
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -430,7 +479,7 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, initialDate: String? = null
             }
             item { OutlinedTextField(oneLine, { oneLine = it }, label = { Text("한줄평") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(detail, { detail = it }, label = { Text("상세 감상") }, minLines = 4, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(tags, { tags = it }, label = { Text("태그, 쉼표로 구분") }, modifier = Modifier.fillMaxWidth()) }
+            item { TagInputField(tags) { tags = it } }
             item { HorizontalDivider() }
             item { OutlinedButton(onClick = { showArtworkDialog = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("작품 추가") } }
             if (pendingArtworks.isNotEmpty()) {
@@ -449,7 +498,7 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, initialDate: String? = null
                     onClick = {
                         runCatching { LocalDate.parse(date) }.onSuccess {
                             vm.createExhibition(title, it, imagePath, venue, oneLine, detail, tags, description, startDate.ifBlank { null }, endDate.ifBlank { null }, officialUrl.ifBlank { null }, rating.takeIf { r -> r > 0f }, onDone = { id ->
-                                pendingArtworks.forEach { pa -> vm.addArtwork(id, pa.title, pa.artist, pa.review, pa.imagePaths, pa.sourceUrl, pa.medium, pa.description, pa.audioClips) {} }
+                                pendingArtworks.forEach { pa -> vm.addArtwork(id, pa.title, pa.artist, pa.review, pa.imagePaths, pa.sourceUrl, pa.medium, pa.description, pa.audioClips, pa.tags.split(',')) {} }
                                 onDone(id)
                             })
                         }
@@ -497,7 +546,7 @@ private fun ExhibitionEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit)
             }
             item { OutlinedTextField(venue, { venue = it }, label = { Text("장소") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(officialUrl, { officialUrl = it }, label = { Text("공식 링크") }, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(tagsText, { tagsText = it }, label = { Text("태그, 쉼표로 구분") }, modifier = Modifier.fillMaxWidth()) }
+            item { TagInputField(tagsText) { tagsText = it } }
             if (visits.isNotEmpty()) {
                 item { HorizontalDivider() }
                 item { OutlinedTextField(date, { date = it }, label = { Text("관람일 (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth()) }
@@ -537,7 +586,7 @@ private fun ExhibitionEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit)
 @Composable
 private fun ArtworkQuickAddDialog(vm: AppViewModel, onDismiss: () -> Unit, onAdd: (PendingArtwork) -> Unit) {
     var title by remember { mutableStateOf("") }; var artist by remember { mutableStateOf("") }; var review by remember { mutableStateOf("") }; var imagePaths by remember { mutableStateOf<List<String>>(emptyList()) }; var sourceUrl by remember { mutableStateOf("") }
-    var medium by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var audioClips by remember { mutableStateOf<List<Pair<String, Long?>>>(emptyList()) }
+    var medium by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var audioClips by remember { mutableStateOf<List<Pair<String, Long?>>>(emptyList()) }; var tags by remember { mutableStateOf("") }
     var attachmentMessage by remember { mutableStateOf("") }
     val openGallery = rememberMultipleImagePicker(vm) { imagePaths = imagePaths + it }
     val openCamera = rememberCameraCapture(vm, onCaptured = { imagePaths = imagePaths + it }, onPermissionDenied = { attachmentMessage = "카메라 권한이 필요합니다." })
@@ -554,10 +603,11 @@ private fun ArtworkQuickAddDialog(vm: AppViewModel, onDismiss: () -> Unit, onAdd
                 OutlinedTextField(description, { description = it }, label = { Text("작품 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(review, { review = it }, label = { Text("내 감상") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(sourceUrl, { sourceUrl = it }, label = { Text("출처/설명 링크") }, modifier = Modifier.fillMaxWidth())
+                TagInputField(tags) { tags = it }
                 AudioClipsEditor(recording, audioClips) { clip -> audioClips = audioClips - clip }
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                     TextButton(onClick = onDismiss) { Text("취소") }
-                    Button(onClick = { if (title.isNotBlank()) { onAdd(PendingArtwork(title.trim(), artist.trim().ifBlank { null }, review.trim().ifBlank { null }, imagePaths, sourceUrl.trim().ifBlank { null }, medium.trim().ifBlank { null }, description.trim().ifBlank { null }, audioClips)); onDismiss() } }) { Text("추가") }
+                    Button(onClick = { if (title.isNotBlank()) { onAdd(PendingArtwork(title.trim(), artist.trim().ifBlank { null }, review.trim().ifBlank { null }, imagePaths, sourceUrl.trim().ifBlank { null }, medium.trim().ifBlank { null }, description.trim().ifBlank { null }, audioClips, tags)); onDismiss() } }) { Text("추가") }
                 }
             }
         }
@@ -707,14 +757,14 @@ private fun MarkVisitedDialog(vm: AppViewModel, exhibitionId: Long, onDismiss: (
 @Composable
 private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> Unit) {
     var title by remember { mutableStateOf("") }; var artist by remember { mutableStateOf("") }; var review by remember { mutableStateOf("") }; var imagePaths by remember { mutableStateOf<List<String>>(emptyList()) }; var sourceUrl by remember { mutableStateOf("") }
-    var medium by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var audioClips by remember { mutableStateOf<List<Pair<String, Long?>>>(emptyList()) }
+    var medium by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var audioClips by remember { mutableStateOf<List<Pair<String, Long?>>>(emptyList()) }; var tags by remember { mutableStateOf("") }
     var attachmentMessage by remember { mutableStateOf("") }
     var savedCount by remember { mutableIntStateOf(0) }
     val openGallery = rememberMultipleImagePicker(vm) { imagePaths = imagePaths + it }
     val openCamera = rememberCameraCapture(vm, onCaptured = { imagePaths = imagePaths + it }, onPermissionDenied = { attachmentMessage = "카메라 권한이 필요합니다." })
     val recording = rememberAudioRecording(vm, onSaved = { path, duration -> audioClips = audioClips + (path to duration) }, onError = { attachmentMessage = it })
     fun resetForm() {
-        title = ""; artist = ""; review = ""; imagePaths = emptyList(); sourceUrl = ""; medium = ""; description = ""; audioClips = emptyList()
+        title = ""; artist = ""; review = ""; imagePaths = emptyList(); sourceUrl = ""; medium = ""; description = ""; audioClips = emptyList(); tags = ""
     }
     Scaffold(topBar = { TopAppBar(title = { Text("작품 추가") }, navigationIcon = { IconButton(onClick = onDone) { Icon(Icons.Default.Close, "완료") } }) }) { p ->
         LazyColumn(Modifier.padding(p).imePadding(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -727,10 +777,11 @@ private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onDone: ()
             item { OutlinedTextField(description, { description = it }, label = { Text("작품 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(review, { review = it }, label = { Text("내 감상") }, minLines = 3, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(sourceUrl, { sourceUrl = it }, label = { Text("출처/설명 링크") }, modifier = Modifier.fillMaxWidth()) }
+            item { TagInputField(tags) { tags = it } }
             item { AudioClipsEditor(recording, audioClips) { clip -> audioClips = audioClips - clip } }
             item {
                 Button(
-                    onClick = { vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips) { savedCount++; resetForm() } },
+                    onClick = { vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { savedCount++; resetForm() } },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("저장하고 계속 추가") }
             }
@@ -742,17 +793,20 @@ private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onDone: ()
 @Composable
 private fun ArtworkEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit) {
     val card by vm.artwork(id).collectAsStateWithLifecycle(initialValue = null)
+    val artworkTags by vm.tagsForArtwork(id).collectAsStateWithLifecycle(initialValue = emptyList())
     var initialized by remember { mutableStateOf(false) }
     var title by remember { mutableStateOf("") }; var artist by remember { mutableStateOf("") }; var review by remember { mutableStateOf("") }
     var medium by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var sourceUrl by remember { mutableStateOf("") }
+    var tagsText by remember { mutableStateOf("") }
     var newImagePaths by remember { mutableStateOf<List<String>>(emptyList()) }
     var newAudioClips by remember { mutableStateOf<List<Pair<String, Long?>>>(emptyList()) }
     var attachmentMessage by remember { mutableStateOf("") }
-    LaunchedEffect(card) {
+    LaunchedEffect(card, artworkTags) {
         val c = card ?: return@LaunchedEffect
         if (!initialized) {
             title = c.artwork.title; artist = c.artist?.name.orEmpty(); review = c.artwork.personalReview.orEmpty()
             medium = c.artwork.medium.orEmpty(); description = c.artwork.description.orEmpty(); sourceUrl = c.artwork.sourceUrl.orEmpty()
+            tagsText = artworkTags.joinToString(", ") { it.name }
             initialized = true
         }
     }
@@ -788,6 +842,7 @@ private fun ArtworkEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit) {
                 item { OutlinedTextField(description, { description = it }, label = { Text("작품 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
                 item { OutlinedTextField(review, { review = it }, label = { Text("내 감상") }, minLines = 3, modifier = Modifier.fillMaxWidth()) }
                 item { OutlinedTextField(sourceUrl, { sourceUrl = it }, label = { Text("출처/설명 링크") }, modifier = Modifier.fillMaxWidth()) }
+                item { TagInputField(tagsText) { tagsText = it } }
                 if (artwork.audio.isNotEmpty()) {
                     item { Text("기존 음성", style = MaterialTheme.typography.titleSmall) }
                     items(artwork.audio, key = { "existing-audio-${it.id}" }) { audio ->
@@ -804,7 +859,7 @@ private fun ArtworkEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit) {
                     Button(
                         onClick = {
                             val updated = artwork.artwork.copy(title = title.trim(), medium = medium.trim().ifBlank { null }, description = description.trim().ifBlank { null }, personalReview = review.trim().ifBlank { null }, sourceUrl = sourceUrl.trim().ifBlank { null })
-                            vm.updateArtwork(updated, artist, newImagePaths, newAudioClips, onDone = onDone)
+                            vm.updateArtwork(updated, artist, newImagePaths, newAudioClips, tagsText.split(','), onDone = onDone)
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("저장") }
@@ -1113,6 +1168,12 @@ private fun wishlistIncludes(w: ExhibitionEntity, date: LocalDate): Boolean {
     return !date.isBefore(start) && !date.isAfter(end)
 }
 
+private fun wishlistOverlapsMonth(w: ExhibitionEntity, month: YearMonth): Boolean {
+    val start = w.startDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+    val end = w.endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+    return !start.isAfter(month.atEndOfMonth()) && !end.isBefore(month.atDay(1))
+}
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun CalendarScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onCreateExhibition: (String?) -> Unit, onAddArtwork: (Long) -> Unit) {
@@ -1123,6 +1184,13 @@ private fun CalendarScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onCreateExh
     val scope = rememberCoroutineScope()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     val month = YearMonth.now().plusMonths((pagerState.currentPage - CALENDAR_CENTER_PAGE).toLong())
+    val monthWishlist = remember(wishlist, month) { wishlist.filter { w -> wishlistOverlapsMonth(w, month) } }
+    val monthExhibitions = remember(visits, exhibitions, month) {
+        visits.filter { it.visitedAt.startsWith(month.toString()) }
+            .sortedBy { it.visitedAt }
+            .mapNotNull { v -> exhibitions.firstOrNull { it.id == v.exhibitionId } }
+            .distinctBy { it.id }
+    }
     selectedDate?.let { d ->
         DayDetailDialog(
             vm, d, wishlistColors,
@@ -1132,24 +1200,48 @@ private fun CalendarScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onCreateExh
             onAddArtwork = { id -> selectedDate = null; onAddArtwork(id) }
         )
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("${month.year}년 ${month.monthValue}월") }, navigationIcon = { IconButton(onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } }) { Icon(Icons.Default.ChevronLeft, null) } }, actions = { IconButton(onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } }) { Icon(Icons.Default.ChevronRight, null) } }) }) { p ->
+    val sheetState = rememberBottomSheetScaffoldState()
+    BottomSheetScaffold(
+        scaffoldState = sheetState,
+        sheetPeekHeight = 56.dp,
+        topBar = { TopAppBar(title = { Text("${month.year}년 ${month.monthValue}월") }, navigationIcon = { IconButton(onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) } }) { Icon(Icons.Default.ChevronLeft, null) } }, actions = { IconButton(onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) } }) { Icon(Icons.Default.ChevronRight, null) } }) },
+        sheetContent = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                if (monthWishlist.isNotEmpty()) {
+                    Text("위시리스트", style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(6.dp))
+                    monthWishlist.forEach { w ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpen(w.id) }, verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(wishlistColors[w.id] ?: Color.Gray))
+                            Spacer(Modifier.width(8.dp))
+                            Text(w.title, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                Text("${month.monthValue}월 전시", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(6.dp))
+                if (monthExhibitions.isEmpty()) {
+                    Text("이 달에 관람한 전시가 없습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
+                } else {
+                    monthExhibitions.forEach { ex -> ExhibitionRow(ex, onOpen) }
+                }
+            }
+        }
+    ) { p ->
         HorizontalPager(state = pagerState, modifier = Modifier.padding(p).fillMaxSize()) { page ->
             val pageMonth = YearMonth.now().plusMonths((page - CALENDAR_CENTER_PAGE).toLong())
             val first = pageMonth.atDay(1); val offset = first.dayOfWeek.value % 7
             val cells = List(offset) { null } + (1..pageMonth.lengthOfMonth()).map { pageMonth.atDay(it) }
             val weeks = cells.chunked(7).map { it + List(7 - it.size) { null } }
-            val monthExhibitions = visits.filter { it.visitedAt.startsWith(pageMonth.toString()) }
-                .sortedBy { it.visitedAt }
-                .mapNotNull { v -> exhibitions.firstOrNull { it.id == v.exhibitionId } }
-                .distinctBy { it.id }
-            Column(Modifier.fillMaxSize().padding(6.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.fillMaxSize().padding(6.dp)) {
                 Row(Modifier.fillMaxWidth()) {
                     listOf("일", "월", "화", "수", "목", "금", "토").forEach { day ->
                         Text(day, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                     }
                 }
                 weeks.forEach { week ->
-                    Row(Modifier.fillMaxWidth().height(64.dp)) {
+                    Row(Modifier.fillMaxWidth().weight(1f)) {
                         week.forEach { date ->
                             if (date == null) Spacer(Modifier.weight(1f).fillMaxHeight()) else {
                                 val dayVisits = visits.filter { it.visitedAt == date.toString() }
@@ -1169,7 +1261,7 @@ private fun CalendarScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onCreateExh
                                             Text(date.dayOfMonth.toString(), Modifier.padding(5.dp), style = MaterialTheme.typography.labelMedium)
                                         }
                                         if (dayWishlistIds.isNotEmpty()) {
-                                            Row(Modifier.align(Alignment.BottomEnd).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Row(Modifier.align(Alignment.BottomEnd).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                                                 dayWishlistIds.take(4).forEach { id -> Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(wishlistColors[id] ?: Color.Gray)) }
                                             }
                                         }
@@ -1178,24 +1270,6 @@ private fun CalendarScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onCreateExh
                             }
                         }
                     }
-                }
-                if (wishlist.isNotEmpty()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("위시리스트", style = MaterialTheme.typography.titleSmall)
-                    wishlist.forEach { w ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onOpen(w.id) }, verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(10.dp).clip(RoundedCornerShape(5.dp)).background(wishlistColors[w.id] ?: Color.Gray))
-                            Spacer(Modifier.width(8.dp))
-                            Text(w.title, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("${pageMonth.monthValue}월 전시", style = MaterialTheme.typography.titleSmall)
-                if (monthExhibitions.isEmpty()) {
-                    Text("이 달에 관람한 전시가 없습니다.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 8.dp))
-                } else {
-                    monthExhibitions.forEach { ex -> ExhibitionRow(ex, onOpen) }
                 }
             }
         }
@@ -1255,27 +1329,75 @@ private fun DayDetailDialog(
     }
 }
 
+private enum class ExhibitionSort(val label: String) { RECENT("최신순"), NAME("이름순"), RATING("별점순") }
+private enum class ArtistSort(val label: String) { NAME("이름순"), COUNT("작품수순") }
+private enum class TagSort(val label: String) { NAME("이름순"), COUNT("사용많은순") }
+
+@Composable
+private fun <T> SortChipRow(options: List<T>, selected: T, labelOf: (T) -> String, onSelect: (T) -> Unit) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { opt -> FilterChip(selected = opt == selected, onClick = { onSelect(opt) }, label = { Text(labelOf(opt)) }) }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ArchiveScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onOpenArtist: (Long) -> Unit, onOpenTag: (Long) -> Unit) {
     val exhibitions by vm.visitedExhibitions.collectAsStateWithLifecycle(); val artists by vm.artists.collectAsStateWithLifecycle(); val tags by vm.tags.collectAsStateWithLifecycle()
+    val visits by vm.visits.collectAsStateWithLifecycle()
+    val artistUsage by vm.artistUsage.collectAsStateWithLifecycle()
+    val tagUsage by vm.tagUsage.collectAsStateWithLifecycle()
     val gridColumns by vm.gridColumns.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState(initialPage = 0) { 3 }
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
+    var exhibitionSort by remember { mutableStateOf(ExhibitionSort.RECENT) }
+    var artistSort by remember { mutableStateOf(ArtistSort.NAME) }
+    var tagSort by remember { mutableStateOf(TagSort.NAME) }
     val q = query.trim()
     val filteredExhibitions = if (q.isEmpty()) exhibitions else exhibitions.filter { it.title.contains(q, ignoreCase = true) || it.venueName?.contains(q, ignoreCase = true) == true }
     val filteredArtists = if (q.isEmpty()) artists else artists.filter { it.name.contains(q, ignoreCase = true) }
     val filteredTags = if (q.isEmpty()) tags else tags.filter { it.name.contains(q, ignoreCase = true) }
+    val ratingByExhibition = remember(visits) { visits.filter { it.rating != null }.groupBy { it.exhibitionId }.mapValues { (_, vs) -> vs.first().rating!! } }
+    val artistCountById = remember(artistUsage) { artistUsage.associate { it.artist.id to it.count } }
+    val tagCountById = remember(tagUsage) { tagUsage.associate { it.tag.id to it.count } }
+    val sortedExhibitions = remember(filteredExhibitions, exhibitionSort, ratingByExhibition) {
+        when (exhibitionSort) {
+            ExhibitionSort.RECENT -> filteredExhibitions
+            ExhibitionSort.NAME -> filteredExhibitions.sortedBy { it.title }
+            ExhibitionSort.RATING -> filteredExhibitions.sortedByDescending { ratingByExhibition[it.id] ?: -1f }
+        }
+    }
+    val sortedArtists = remember(filteredArtists, artistSort, artistCountById) {
+        when (artistSort) {
+            ArtistSort.NAME -> filteredArtists.sortedBy { it.name }
+            ArtistSort.COUNT -> filteredArtists.sortedByDescending { artistCountById[it.id] ?: 0 }
+        }
+    }
+    val sortedTags = remember(filteredTags, tagSort, tagCountById) {
+        when (tagSort) {
+            TagSort.NAME -> filteredTags.sortedBy { it.name }
+            TagSort.COUNT -> filteredTags.sortedByDescending { tagCountById[it.id] ?: 0 }
+        }
+    }
     Scaffold(topBar = { TopAppBar(title = { Text("아카이브") }) }) { p ->
         Column(Modifier.padding(p).imePadding()) {
             OutlinedTextField(query, { query = it }, leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("아카이브 검색") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp))
             TabRow(pagerState.currentPage) { listOf("전시", "작가", "태그").forEachIndexed { i, s -> Tab(selected = pagerState.currentPage == i, onClick = { scope.launch { pagerState.animateScrollToPage(i) } }, text = { Text(s) }) } }
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                 when (page) {
-                    0 -> LazyVerticalGrid(columns = GridCells.Fixed(gridColumns), modifier = Modifier.fillMaxSize()) { items(filteredExhibitions, key = { it.id }) { Box(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) { ExhibitionGridItem(it, onOpen) } } }
-                    1 -> LazyColumn(Modifier.fillMaxSize()) { items(filteredArtists) { ListItem(headlineContent = { Text(it.name) }, supportingContent = { Text(it.nationality.orEmpty()) }, leadingContent = { Icon(Icons.Default.Person, null) }, modifier = Modifier.clickable { onOpenArtist(it.id) }) } }
-                    else -> LazyColumn(Modifier.fillMaxSize()) { items(filteredTags) { ListItem(headlineContent = { Text("#${it.name}") }, leadingContent = { Icon(Icons.Default.Tag, null) }, modifier = Modifier.clickable { onOpenTag(it.id) }) } }
+                    0 -> Column(Modifier.fillMaxSize()) {
+                        SortChipRow(ExhibitionSort.entries, exhibitionSort, { it.label }) { exhibitionSort = it }
+                        LazyVerticalGrid(columns = GridCells.Fixed(gridColumns), modifier = Modifier.fillMaxWidth().weight(1f)) { items(sortedExhibitions, key = { it.id }) { Box(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) { ExhibitionGridItem(it, onOpen) } } }
+                    }
+                    1 -> Column(Modifier.fillMaxSize()) {
+                        SortChipRow(ArtistSort.entries, artistSort, { it.label }) { artistSort = it }
+                        LazyColumn(Modifier.fillMaxWidth().weight(1f)) { items(sortedArtists) { ListItem(headlineContent = { Text(it.name) }, supportingContent = { Text(artistCountById[it.id]?.let { c -> "작품 ${c}개" } ?: it.nationality.orEmpty()) }, leadingContent = { Icon(Icons.Default.Person, null) }, modifier = Modifier.clickable { onOpenArtist(it.id) }) } }
+                    }
+                    else -> Column(Modifier.fillMaxSize()) {
+                        SortChipRow(TagSort.entries, tagSort, { it.label }) { tagSort = it }
+                        LazyColumn(Modifier.fillMaxWidth().weight(1f)) { items(sortedTags) { ListItem(headlineContent = { Text("#${it.name}") }, supportingContent = { tagCountById[it.id]?.let { c -> { Text("${c}회 사용") } } }, leadingContent = { Icon(Icons.Default.Tag, null) }, modifier = Modifier.clickable { onOpenTag(it.id) }) } }
+                    }
                 }
             }
         }
@@ -1373,7 +1495,7 @@ private fun WishlistCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone: (
             }
             item { OutlinedTextField(venue, { venue = it }, label = { Text("장소") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(officialUrl, { officialUrl = it }, label = { Text("공식 링크") }, modifier = Modifier.fillMaxWidth()) }
-            item { OutlinedTextField(tags, { tags = it }, label = { Text("태그, 쉼표로 구분") }, modifier = Modifier.fillMaxWidth()) }
+            item { TagInputField(tags) { tags = it } }
             item {
                 Button(
                     onClick = { vm.createWishlist(title, imagePath, venue, tags, description, startDate.ifBlank { null }, endDate.ifBlank { null }, officialUrl.ifBlank { null }, onDone = onDone) },

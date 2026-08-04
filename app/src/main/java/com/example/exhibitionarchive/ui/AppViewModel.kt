@@ -33,6 +33,8 @@ class AppViewModel @Inject constructor(
     val visits = repository.visits.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val artists = repository.artists.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val tags = repository.tags.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val artistUsage = repository.artistUsage.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val tagUsage = repository.tagUsage.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
 
@@ -120,11 +122,12 @@ class AppViewModel @Inject constructor(
         medium: String? = null,
         description: String? = null,
         audioClips: List<Pair<String, Long?>> = emptyList(),
+        tagNames: List<String> = emptyList(),
         onDone: (Long) -> Unit
     ) {
         if (title.isBlank()) { _message.value = "작품명을 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { repository.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips) }
+            runCatching { repository.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tagNames) }
                 .onSuccess { id -> onDone(id) }
                 .onFailure { _message.value = it.message ?: "작품 저장에 실패했습니다." }
         }
@@ -138,10 +141,10 @@ class AppViewModel @Inject constructor(
         }
     }
 
-    fun updateArtwork(artwork: ArtworkEntity, artistName: String?, newImagePaths: List<String>, newAudioClips: List<Pair<String, Long?>>, onDone: () -> Unit) {
+    fun updateArtwork(artwork: ArtworkEntity, artistName: String?, newImagePaths: List<String>, newAudioClips: List<Pair<String, Long?>>, tagNames: List<String>, onDone: () -> Unit) {
         if (artwork.title.isBlank()) { _message.value = "작품명을 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { repository.updateArtwork(artwork, artistName, newImagePaths, newAudioClips) }
+            runCatching { repository.updateArtwork(artwork, artistName, newImagePaths, newAudioClips, tagNames) }
                 .onSuccess { onDone() }
                 .onFailure { _message.value = it.message ?: "저장에 실패했습니다." }
         }
@@ -159,6 +162,7 @@ class AppViewModel @Inject constructor(
     fun audioFor(id: Long) = repository.audioForExhibition(id)
     fun visitNotesFor(id: Long) = repository.visitNotesForExhibition(id)
     fun tagsFor(id: Long) = repository.tagsForExhibition(id)
+    fun tagsForArtwork(id: Long) = repository.tagsForArtwork(id)
     fun searchExhibitions(q: String) = repository.searchExhibitions(q)
     fun searchArtworks(q: String) = repository.searchArtworks(q)
     fun searchArtists(q: String) = repository.searchArtists(q)
