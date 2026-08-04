@@ -169,7 +169,8 @@ data class ExhibitionWithVisit(
 data class ArtworkCard(
     @Embedded val artwork: ArtworkEntity,
     @Relation(parentColumn = "artistId", entityColumn = "id") val artist: ArtistEntity?,
-    @Relation(parentColumn = "id", entityColumn = "artworkId") val images: List<ArtworkImageEntity>
+    @Relation(parentColumn = "id", entityColumn = "artworkId") val images: List<ArtworkImageEntity>,
+    @Relation(parentColumn = "id", entityColumn = "artworkId") val audio: List<AudioRecordEntity>
 )
 
 @Serializable

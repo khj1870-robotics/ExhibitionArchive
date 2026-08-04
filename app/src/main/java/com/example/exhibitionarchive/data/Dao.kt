@@ -15,6 +15,8 @@ interface ExhibitionDao {
     fun search(query: String): Flow<List<ExhibitionEntity>>
     @Query("SELECT * FROM exhibitions") suspend fun allNow(): List<ExhibitionEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<ExhibitionEntity>)
+    @Query("SELECT * FROM exhibitions WHERE id IN (SELECT DISTINCT exhibitionId FROM visits) ORDER BY updatedAt DESC") fun observeVisited(): Flow<List<ExhibitionEntity>>
+    @Query("SELECT * FROM exhibitions WHERE id NOT IN (SELECT DISTINCT exhibitionId FROM visits) ORDER BY startDate IS NULL, startDate") fun observeWishlist(): Flow<List<ExhibitionEntity>>
 }
 
 @Dao
@@ -47,6 +49,7 @@ interface ArtworkDao {
     @Query("SELECT * FROM artworks WHERE title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR personalReview LIKE '%' || :query || '%' ORDER BY updatedAt DESC") fun search(query: String): Flow<List<ArtworkEntity>>
     @Insert suspend fun insert(item: ArtworkEntity): Long
     @Update suspend fun update(item: ArtworkEntity)
+    @Query("SELECT * FROM artworks WHERE id=:id") suspend fun get(id: Long): ArtworkEntity?
     @Query("DELETE FROM artworks WHERE id=:id") suspend fun deleteById(id: Long)
     @Query("SELECT * FROM artworks") suspend fun allNow(): List<ArtworkEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<ArtworkEntity>)
@@ -63,6 +66,7 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertImages(items: List<ArtworkImageEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAudio(items: List<AudioRecordEntity>)
     @Query("DELETE FROM audio_records WHERE id=:id") suspend fun deleteAudio(id: Long)
+    @Query("UPDATE audio_records SET artworkId=:artworkId, exhibitionId=NULL WHERE id IN (:ids)") suspend fun reassignToArtwork(ids: List<Long>, artworkId: Long)
 }
 
 @Dao
@@ -72,6 +76,8 @@ interface VisitNoteDao {
     @Delete suspend fun delete(item: VisitNoteEntity)
     @Query("SELECT * FROM visit_notes") suspend fun allNow(): List<VisitNoteEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<VisitNoteEntity>)
+    @Query("SELECT * FROM visit_notes WHERE id IN (:ids)") suspend fun getByIds(ids: List<Long>): List<VisitNoteEntity>
+    @Query("DELETE FROM visit_notes WHERE id IN (:ids)") suspend fun deleteByIds(ids: List<Long>)
 }
 
 @Dao

@@ -8,6 +8,8 @@ import javax.inject.Singleton
 @Singleton
 class AppRepository @Inject constructor(private val db: AppDatabase) {
     val exhibitions = db.exhibitionDao().observeAll()
+    val visitedExhibitions = db.exhibitionDao().observeVisited()
+    val wishlist = db.exhibitionDao().observeWishlist()
     val visits = db.visitDao().observeAll()
     val artists = db.artistDao().observeAll()
     val tags = db.tagDao().observeAll()
@@ -22,7 +24,7 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
 
     suspend fun createExhibition(
         title: String,
-        visitDate: String,
+        visitDate: String?,
         posterPath: String?,
         venue: String?,
         oneLine: String?,
@@ -45,9 +47,15 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
                 officialUrl = officialUrl?.trim()?.ifBlank { null }
             )
         )
-        db.visitDao().insert(VisitEntity(exhibitionId = exhibitionId, visitedAt = visitDate, oneLineReview = oneLine?.trim()?.ifBlank { null }, detailedReview = detail?.trim()?.ifBlank { null }, rating = rating))
+        if (visitDate != null) {
+            db.visitDao().insert(VisitEntity(exhibitionId = exhibitionId, visitedAt = visitDate, oneLineReview = oneLine?.trim()?.ifBlank { null }, detailedReview = detail?.trim()?.ifBlank { null }, rating = rating))
+        }
         db.tagDao().setExhibitionTags(exhibitionId, tagNames)
         exhibitionId
+    }
+
+    suspend fun markVisited(exhibitionId: Long, date: String, oneLine: String?, detail: String?, rating: Float?) {
+        db.visitDao().insert(VisitEntity(exhibitionId = exhibitionId, visitedAt = date, oneLineReview = oneLine?.trim()?.ifBlank { null }, detailedReview = detail?.trim()?.ifBlank { null }, rating = rating))
     }
 
     suspend fun addArtwork(
@@ -56,7 +64,10 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         artistName: String?,
         review: String?,
         imagePaths: List<String> = emptyList(),
-        sourceUrl: String? = null
+        sourceUrl: String? = null,
+        medium: String? = null,
+        description: String? = null,
+        audioClips: List<Pair<String, Long?>> = emptyList()
     ): Long = db.withTransaction {
         val artistId = artistName?.trim()?.takeIf { it.isNotEmpty() }?.let { name ->
             db.artistDao().insert(ArtistEntity(name = name))
@@ -66,6 +77,8 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
                 exhibitionId = exhibitionId,
                 artistId = artistId,
                 title = title.trim(),
+                medium = medium?.trim()?.ifBlank { null },
+                description = description?.trim()?.ifBlank { null },
                 personalReview = review?.trim()?.ifBlank { null },
                 sourceUrl = sourceUrl?.trim()?.ifBlank { null }
             )
@@ -73,7 +86,32 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         imagePaths.forEachIndexed { index, path ->
             db.mediaDao().insertImage(ArtworkImageEntity(artworkId = id, localPath = path, sourceType = "GALLERY", isRepresentative = index == 0))
         }
+        audioClips.forEach { (path, duration) ->
+            db.mediaDao().insertAudio(AudioRecordEntity(artworkId = id, filePath = path, durationMillis = duration))
+        }
         id
+    }
+
+    suspend fun assignVisitItemsToArtwork(artworkId: Long, noteIds: List<Long>, audioIds: List<Long>) = db.withTransaction {
+        if (noteIds.isNotEmpty()) {
+            val notes = db.visitNoteDao().getByIds(noteIds)
+            notes.forEach { note ->
+                note.photoPath?.let { path ->
+                    db.mediaDao().insertImage(ArtworkImageEntity(artworkId = artworkId, localPath = path, sourceType = "VISIT_MODE"))
+                }
+            }
+            val texts = notes.mapNotNull { it.text }
+            if (texts.isNotEmpty()) {
+                db.artworkDao().get(artworkId)?.let { artwork ->
+                    val merged = (listOfNotNull(artwork.description) + texts).joinToString("\n\n")
+                    db.artworkDao().update(artwork.copy(description = merged))
+                }
+            }
+            db.visitNoteDao().deleteByIds(noteIds)
+        }
+        if (audioIds.isNotEmpty()) {
+            db.mediaDao().reassignToArtwork(audioIds, artworkId)
+        }
     }
 
     suspend fun addAudio(item: AudioRecordEntity) = db.mediaDao().insertAudio(item)
