@@ -88,6 +88,7 @@ class AppViewModel @Inject constructor(
     fun exhibition(id: Long) = repository.exhibition(id)
     fun visitsFor(id: Long) = repository.visitsForExhibition(id)
     fun artworksFor(id: Long) = repository.artworksForExhibition(id)
+    fun artwork(id: Long) = repository.artwork(id)
     fun audioFor(id: Long) = repository.audioForExhibition(id)
     fun visitNotesFor(id: Long) = repository.visitNotesForExhibition(id)
     fun tagsFor(id: Long) = repository.tagsForExhibition(id)

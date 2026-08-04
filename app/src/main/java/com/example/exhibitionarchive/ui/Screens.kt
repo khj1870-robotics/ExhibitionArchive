@@ -1,6 +1,7 @@
 package com.example.exhibitionarchive.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.net.Uri
@@ -96,10 +97,13 @@ fun ExhibitionArchiveRoot(vm: AppViewModel = hiltViewModel()) {
             composable("createExhibition") { ExhibitionCreateScreen(vm, { nav.popBackStack() }) { id -> nav.navigate("exhibition/$id") { popUpTo("createExhibition") { inclusive = true } } } }
             composable("exhibition/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { back ->
                 val id = back.arguments?.getLong("id") ?: return@composable
-                ExhibitionDetailScreen(vm, id, { nav.popBackStack() }, { nav.navigate("artworkCreate/$id") }, { nav.navigate("visitMode/$id") })
+                ExhibitionDetailScreen(vm, id, { nav.popBackStack() }, { nav.navigate("artworkCreate/$id") }, { nav.navigate("visitMode/$id") }, { artworkId -> nav.navigate("artwork/$artworkId") })
             }
             composable("artworkCreate/{exhibitionId}", arguments = listOf(navArgument("exhibitionId") { type = NavType.LongType })) { back ->
                 ArtworkCreateScreen(vm, back.arguments!!.getLong("exhibitionId")) { nav.popBackStack() }
+            }
+            composable("artwork/{artworkId}", arguments = listOf(navArgument("artworkId") { type = NavType.LongType })) { back ->
+                ArtworkDetailScreen(vm, back.arguments!!.getLong("artworkId")) { nav.popBackStack() }
             }
             composable("visitMode/{exhibitionId}", arguments = listOf(navArgument("exhibitionId") { type = NavType.LongType })) { back ->
                 VisitModeScreen(vm, back.arguments!!.getLong("exhibitionId")) { nav.popBackStack() }
@@ -416,7 +420,7 @@ private fun ExhibitionPickerDialog(vm: AppViewModel, onDismiss: () -> Unit, onSe
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ExhibitionDetailScreen(vm: AppViewModel, id: Long, onBack: () -> Unit, onAddArtwork: () -> Unit, onVisitMode: () -> Unit) {
+private fun ExhibitionDetailScreen(vm: AppViewModel, id: Long, onBack: () -> Unit, onAddArtwork: () -> Unit, onVisitMode: () -> Unit, onOpenArtwork: (Long) -> Unit) {
     val exhibition by vm.exhibition(id).collectAsStateWithLifecycle(initialValue = null)
     val visits by vm.visitsFor(id).collectAsStateWithLifecycle(initialValue = emptyList())
     val artworks by vm.artworksFor(id).collectAsStateWithLifecycle(initialValue = emptyList())
@@ -435,7 +439,7 @@ private fun ExhibitionDetailScreen(vm: AppViewModel, id: Long, onBack: () -> Uni
             item { Text("작품 ${artworks.size}", Modifier.padding(20.dp), style = MaterialTheme.typography.titleLarge) }
             if (artworks.isEmpty()) item { Text("아직 등록한 작품이 없습니다.", Modifier.padding(horizontal = 20.dp)) }
             items(artworks, key = { it.artwork.id }) { card ->
-                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clickable { onOpenArtwork(card.artwork.id) }) {
                     Row(Modifier.padding(12.dp)) {
                         Box(Modifier.clickable(enabled = card.images.firstOrNull()?.localPath != null) { card.images.firstOrNull()?.localPath?.let { zoomImagePath = it } }) {
                             Poster(card.images.firstOrNull()?.localPath, Modifier.size(90.dp))
@@ -464,6 +468,56 @@ private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onDone: ()
             item { OutlinedTextField(review, { review = it }, label = { Text("내 감상") }, minLines = 3, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(sourceUrl, { sourceUrl = it }, label = { Text("출처/설명 링크") }, modifier = Modifier.fillMaxWidth()) }
             item { Button(onClick = { vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, onDone) }, modifier = Modifier.fillMaxWidth()) { Text("저장") } }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ArtworkDetailScreen(vm: AppViewModel, artworkId: Long, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val card by vm.artwork(artworkId).collectAsStateWithLifecycle(initialValue = null)
+    var zoomImagePath by remember { mutableStateOf<String?>(null) }
+    zoomImagePath?.let { ZoomableImageDialog(it) { zoomImagePath = null } }
+    Scaffold(topBar = { TopAppBar(title = { Text(card?.artwork?.title ?: "작품") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } }) }) { p ->
+        val artwork = card
+        if (artwork == null) {
+            Box(Modifier.padding(p).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else {
+            Column(Modifier.padding(p).fillMaxSize().verticalScroll(rememberScrollState())) {
+                if (artwork.images.isEmpty()) {
+                    Poster(null, Modifier.fillMaxWidth().height(320.dp))
+                } else {
+                    val pagerState = rememberPagerState(pageCount = { artwork.images.size })
+                    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(320.dp)) { page ->
+                        val path = artwork.images[page].localPath
+                        Box(Modifier.fillMaxSize().clickable(enabled = path != null) { path?.let { zoomImagePath = it } }) {
+                            Poster(path, Modifier.fillMaxSize())
+                        }
+                    }
+                    if (artwork.images.size > 1) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.Center) {
+                            repeat(artwork.images.size) { i ->
+                                Box(Modifier.padding(3.dp).size(6.dp).clip(RoundedCornerShape(3.dp)).background(if (i == pagerState.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant))
+                            }
+                        }
+                    }
+                }
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(artwork.artwork.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    artwork.artist?.let { Text(it.name, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    listOfNotNull(artwork.artwork.productionYear, artwork.artwork.medium, artwork.artwork.dimensions).takeIf { it.isNotEmpty() }?.let { Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    artwork.artwork.description?.let { Text(it) }
+                    artwork.artwork.personalReview?.let { Text(it, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyLarge) }
+                    artwork.artwork.sourceUrl?.let { url ->
+                        Row(Modifier.padding(top = 8.dp).clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Link, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(6.dp))
+                            Text(url, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
         }
     }
 }
