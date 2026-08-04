@@ -30,7 +30,8 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         description: String? = null,
         startDate: String? = null,
         endDate: String? = null,
-        officialUrl: String? = null
+        officialUrl: String? = null,
+        rating: Float? = null
     ): Long = db.withTransaction {
         val exhibitionId = db.exhibitionDao().insert(
             ExhibitionEntity(
@@ -43,7 +44,7 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
                 officialUrl = officialUrl?.trim()?.ifBlank { null }
             )
         )
-        db.visitDao().insert(VisitEntity(exhibitionId = exhibitionId, visitedAt = visitDate, oneLineReview = oneLine?.trim()?.ifBlank { null }, detailedReview = detail?.trim()?.ifBlank { null }))
+        db.visitDao().insert(VisitEntity(exhibitionId = exhibitionId, visitedAt = visitDate, oneLineReview = oneLine?.trim()?.ifBlank { null }, detailedReview = detail?.trim()?.ifBlank { null }, rating = rating))
         db.tagDao().setExhibitionTags(exhibitionId, tagNames)
         exhibitionId
     }
