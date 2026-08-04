@@ -77,6 +77,7 @@ data class ArtworkEntity(
     val sectionName: String? = null,
     val description: String? = null,
     val personalReview: String? = null,
+    val sourceUrl: String? = null,
     val displayOrder: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -122,6 +123,25 @@ data class AudioRecordEntity(
     val recordedAt: Long = System.currentTimeMillis()
 )
 
+@Entity(
+    tableName = "visit_notes",
+    foreignKeys = [ForeignKey(
+        entity = ExhibitionEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["exhibitionId"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("exhibitionId"), Index("createdAt")]
+)
+@Serializable
+data class VisitNoteEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val exhibitionId: Long,
+    val photoPath: String? = null,
+    val text: String? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "tags", indices = [Index(value = ["normalizedName"], unique = true)])
 @Serializable
 data class TagEntity(
@@ -149,12 +169,13 @@ data class ExhibitionWithVisit(
 data class ArtworkCard(
     @Embedded val artwork: ArtworkEntity,
     @Relation(parentColumn = "artistId", entityColumn = "id") val artist: ArtistEntity?,
-    @Relation(parentColumn = "id", entityColumn = "artworkId") val images: List<ArtworkImageEntity>
+    @Relation(parentColumn = "id", entityColumn = "artworkId") val images: List<ArtworkImageEntity>,
+    @Relation(parentColumn = "id", entityColumn = "artworkId") val audio: List<AudioRecordEntity>
 )
 
 @Serializable
 data class BackupPayload(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val createdAt: Long = System.currentTimeMillis(),
     val exhibitions: List<ExhibitionEntity>,
     val visits: List<VisitEntity>,
@@ -164,5 +185,6 @@ data class BackupPayload(
     val audio: List<AudioRecordEntity>,
     val tags: List<TagEntity>,
     val exhibitionTags: List<ExhibitionTagCrossRef>,
-    val artworkTags: List<ArtworkTagCrossRef>
+    val artworkTags: List<ArtworkTagCrossRef>,
+    val visitNotes: List<VisitNoteEntity> = emptyList()
 )

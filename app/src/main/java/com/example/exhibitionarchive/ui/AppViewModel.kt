@@ -23,6 +23,8 @@ class AppViewModel @Inject constructor(
     private val settingsStore: SettingsStore
 ) : ViewModel() {
     val exhibitions = repository.exhibitions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val visitedExhibitions = repository.visitedExhibitions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val wishlist = repository.wishlist.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val fontScale = settingsStore.fontScale.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1f)
 
     fun setFontScale(scale: Float) { viewModelScope.launch { settingsStore.setFontScale(scale) } }
@@ -59,6 +61,35 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    fun createWishlist(
+        title: String,
+        posterPath: String?,
+        venue: String?,
+        tags: String,
+        description: String? = null,
+        startDate: String? = null,
+        endDate: String? = null,
+        officialUrl: String? = null,
+        onDone: (Long) -> Unit
+    ) {
+        if (title.isBlank()) { _message.value = "전시명을 입력하세요."; return }
+        viewModelScope.launch {
+            runCatching {
+                repository.createExhibition(title, null, posterPath, venue, null, null, tags.split(','), description, startDate, endDate, officialUrl, null)
+            }
+                .onSuccess(onDone)
+                .onFailure { _message.value = it.message ?: "저장에 실패했습니다." }
+        }
+    }
+
+    fun markVisited(exhibitionId: Long, date: LocalDate, oneLine: String?, detail: String?, rating: Float?, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.markVisited(exhibitionId, date.toString(), oneLine, detail, rating) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "저장에 실패했습니다." }
+        }
+    }
+
     fun importExhibitionInfo(url: String, onResult: (ExhibitionImportInfo) -> Unit) {
         if (url.isBlank()) { _message.value = "링크를 입력하세요."; return }
         viewModelScope.launch {
@@ -68,28 +99,58 @@ class AppViewModel @Inject constructor(
         }
     }
 
-    fun addArtwork(exhibitionId: Long, title: String, artist: String?, review: String?, imagePath: String?, onDone: () -> Unit) {
+    fun addArtwork(
+        exhibitionId: Long,
+        title: String,
+        artist: String?,
+        review: String?,
+        imagePaths: List<String> = emptyList(),
+        sourceUrl: String? = null,
+        medium: String? = null,
+        description: String? = null,
+        audioClips: List<Pair<String, Long?>> = emptyList(),
+        onDone: (Long) -> Unit
+    ) {
         if (title.isBlank()) { _message.value = "작품명을 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { repository.addArtwork(exhibitionId, title, artist, review, imagePath) }
-                .onSuccess { onDone() }
+            runCatching { repository.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips) }
+                .onSuccess { id -> onDone(id) }
                 .onFailure { _message.value = it.message ?: "작품 저장에 실패했습니다." }
+        }
+    }
+
+    fun assignVisitItemsToArtwork(artworkId: Long, noteIds: List<Long>, audioIds: List<Long>, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.assignVisitItemsToArtwork(artworkId, noteIds, audioIds) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "작품에 배정하지 못했습니다." }
         }
     }
 
     fun exhibition(id: Long) = repository.exhibition(id)
     fun visitsFor(id: Long) = repository.visitsForExhibition(id)
     fun artworksFor(id: Long) = repository.artworksForExhibition(id)
+    fun artwork(id: Long) = repository.artwork(id)
     fun audioFor(id: Long) = repository.audioForExhibition(id)
+    fun visitNotesFor(id: Long) = repository.visitNotesForExhibition(id)
     fun tagsFor(id: Long) = repository.tagsForExhibition(id)
     fun searchExhibitions(q: String) = repository.searchExhibitions(q)
     fun searchArtworks(q: String) = repository.searchArtworks(q)
     fun searchArtists(q: String) = repository.searchArtists(q)
 
 
-    fun saveAudio(exhibitionId: Long, filePath: String, title: String = "음성 기록", onDone: () -> Unit = {}) {
+    fun addVisitNote(exhibitionId: Long, photoPath: String?, text: String?, onDone: () -> Unit = {}) {
+        if (photoPath == null && text.isNullOrBlank()) { _message.value = "메모를 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { repository.addAudio(AudioRecordEntity(exhibitionId = exhibitionId, title = title, filePath = filePath)) }
+            runCatching { repository.addVisitNote(exhibitionId, photoPath, text) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "관람 메모 저장에 실패했습니다." }
+        }
+    }
+
+    fun saveAudio(exhibitionId: Long, filePath: String, title: String = "음성 기록", durationMillis: Long? = null, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.addAudio(AudioRecordEntity(exhibitionId = exhibitionId, title = title, filePath = filePath, durationMillis = durationMillis)) }
                 .onSuccess { onDone() }
                 .onFailure { _message.value = it.message ?: "음성 저장에 실패했습니다." }
         }

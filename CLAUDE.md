@@ -125,22 +125,22 @@ There is no linter/formatter configured (no ktlint/detekt). Match the existing d
 Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in one `app` module under `app/src/main/java/com/example/exhibitionarchive/`:
 
 - **`data/`** — persistence layer.
-  - `Models.kt`: all Room `@Entity` classes and relation/DTO classes (`ExhibitionWithVisit`, `ArtworkCard`, `BackupPayload`), each also `@Serializable` for backup JSON.
-  - `Dao.kt`: one `@Dao` interface per aggregate (`ExhibitionDao`, `VisitDao`, `ArtistDao`, `ArtworkDao`, `MediaDao`, `TagDao`). DAOs return `Flow` for observed queries and expose `allNow()`/`insertAll()` pairs used only by backup export/import.
-  - `AppDatabase.kt`: the single Room database (`version = 1`, `exportSchema = true` — schema JSON should be added under `app/schemas` if a migration is ever introduced).
+  - `Models.kt`: all Room `@Entity` classes and relation/DTO classes (`ExhibitionWithVisit`, `ArtworkCard`, `BackupPayload`), each also `@Serializable` for backup JSON. `VisitNoteEntity` stores one visit-mode photo or text memo per row.
+  - `Dao.kt`: one `@Dao` interface per aggregate (`ExhibitionDao`, `VisitDao`, `ArtistDao`, `ArtworkDao`, `MediaDao`, `VisitNoteDao`, `TagDao`). DAOs return `Flow` for observed queries and expose `allNow()`/`insertAll()` pairs used only by backup export/import.
+  - `AppDatabase.kt`: the single Room database (`version = 2`, `exportSchema = true`). `MIGRATION_1_2` adds `ArtworkEntity.sourceUrl` and the `visit_notes` table without deleting installed-app data.
   - `AppRepository.kt`: the only class that touches the DAOs from the UI/ViewModel side. Multi-table writes (`createExhibition`, `addArtwork`, `replaceFromBackup`) are wrapped in `db.withTransaction {}`. Add new cross-entity operations here rather than calling multiple DAOs from the ViewModel.
   - `DatabaseModule.kt`: Hilt `@Module` providing the singleton `AppDatabase`.
-- **`ui/`** — one shared `AppViewModel` (`@HiltViewModel`) exposing repository `Flow`s as `stateIn(..., WhileSubscribed(5_000))` `StateFlow`s, plus a `_message`/`message` `StateFlow` used for one-shot snackbar errors (set the message, screen shows it via `LaunchedEffect` + `SnackbarHostState`, then calls `clearMessage()`). `Screens.kt` contains **all** Composable screens and `ExhibitionArchiveRoot`, which owns a single `NavHost` with string routes (`home`, `calendar`, `archive`, `settings`, `search`, `createExhibition`, `exhibition/{id}`, `artworkCreate/{exhibitionId}`) and a bottom `NavigationBar` shown only on the four top-level routes. There is no separate `navigation/` package — routes are defined inline in `ExhibitionArchiveRoot`.
-- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/` and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs); `downloadImage(url)` saves a remotely fetched poster into the same `images/` dir for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) but is not yet wired into any screen (see README "아직 보완할 부분"). `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` fetches a URL with Jsoup and extracts `ExhibitionImportInfo`: `schema.org`/`Event` JSON-LD first, then OpenGraph/meta tags, then a per-host patch step (`sema.seoul.go.kr`, `nowonarts.kr` — selectors verified against real saved HTML from each site) that overrides fields those sites' generic tags get wrong or miss; unknown hosts just get the generic result. Runs its I/O with `withContext(Dispatchers.IO)` (unlike `FileStore`/`BackupManager`'s dispatcher-less suspend functions) because network calls throw `NetworkOnMainThreadException` if left on the caller's default dispatcher. `SettingsStore` wraps a `datastore-preferences` (`Context.settingsDataStore`) `Flow<Float>` for the UI font-scale preference — plaintext DataStore is fine here since nothing sensitive is stored, unlike the removed Naver-key experiment below.
+- **`ui/`** — one shared `AppViewModel` (`@HiltViewModel`) exposing repository `Flow`s as `stateIn(..., WhileSubscribed(5_000))` `StateFlow`s, plus a `_message`/`message` `StateFlow` used for one-shot snackbar errors (set the message, screen shows it via `LaunchedEffect` + `SnackbarHostState`, then calls `clearMessage()`). `Screens.kt` contains **all** Composable screens and `ExhibitionArchiveRoot`, which owns a single `NavHost` with string routes (`home`, `calendar`, `archive`, `wishlist`, `settings`, `search`, `createExhibition`, `wishlistCreate`, `exhibition/{id}`, `artworkCreate/{exhibitionId}`, `artwork/{artworkId}`, `visitMode/{exhibitionId}`) and a bottom `NavigationBar` shown only on the five top-level routes. There is no separate `navigation/` package — routes are defined inline in `ExhibitionArchiveRoot`.
+- **`util/`** — `FileStore` copies picked gallery images into `filesDir/images/`, exposes `newImageFile()` for camera output, converts it to a FileProvider URI with `uriFor(file)`, and allocates paths in `filesDir/audio/` (returned paths are stored as `localPath`/`filePath` on entities — DB never stores content URIs). `AndroidManifest.xml` registers `${applicationId}.fileprovider` against `res/xml/file_paths.xml`; camera photos are written directly into the same private `images/` directory. `downloadImage(url)` saves a remotely fetched poster into that directory for the auto-import flow. `AudioRecorder` wraps `MediaRecorder` (M4A/AAC) and is connected to `VisitModeScreen`. `BackupManager` serializes/deserializes the entire DB as one `BackupPayload` via kotlinx.serialization into `data.json` inside a ZIP; import is destructive (`db.clearAllTables()` then reinsert — no merge). `ExhibitionPageFetcher` fetches a URL with Jsoup and extracts `ExhibitionImportInfo`: `schema.org`/`Event` JSON-LD first, then OpenGraph/meta tags, then a per-host patch step (`sema.seoul.go.kr`, `nowonarts.kr` — selectors verified against real saved HTML from each site) that overrides fields those sites' generic tags get wrong or miss; unknown hosts just get the generic result. Runs its I/O with `withContext(Dispatchers.IO)` (unlike `FileStore`/`BackupManager`'s dispatcher-less suspend functions) because network calls throw `NetworkOnMainThreadException` if left on the caller's default dispatcher. `SettingsStore` wraps a `datastore-preferences` (`Context.settingsDataStore`) `Flow<Float>` for the UI font-scale preference — plaintext DataStore is fine here since nothing sensitive is stored, unlike the removed Naver-key experiment below.
 
 ### Data model relationships
 
-`ExhibitionEntity` 1—N `VisitEntity` (a visit record per viewing), 1—N `ArtworkEntity`. `ArtworkEntity` N—1 `ArtistEntity` (nullable, `SET_NULL` on delete) and 1—N `ArtworkImageEntity`. `AudioRecordEntity` optionally links to an exhibition and/or artwork. Tags are shared many-to-many via `TagEntity` + `ExhibitionTagCrossRef`/`ArtworkTagCrossRef`, deduplicated by `normalizedName` (trimmed+lowercased, unique index) — always go through `TagDao.setExhibitionTags()` to add tags rather than inserting `TagEntity` directly, since it handles find-or-create and clearing old links.
+`ExhibitionEntity` 1—N `VisitEntity` (a visit record per viewing), 1—N `ArtworkEntity`, 1—N `VisitNoteEntity` (관람 모드의 사진 또는 텍스트 메모). **위시리스트("가고싶은 전시")는 별도 테이블이 아니라 `VisitEntity`가 하나도 없는 `ExhibitionEntity`다** — `ExhibitionDao.observeWishlist()`/`observeVisited()`가 `visits` 테이블에 대한 서브쿼리로 이 둘을 구분한다. `AppRepository.markVisited()`로 첫 `VisitEntity`를 추가하면("다녀왔어요") 자동으로 위시리스트에서 빠지고 일반 전시 기록이 된다. `ArtworkEntity` N—1 `ArtistEntity` (nullable, `SET_NULL` on delete) and 1—N `ArtworkImageEntity`; 작품 하나에 여러 로컬 사진과 하나의 `sourceUrl`, `medium`(재료/기법), `description`(작품 설명)을 저장할 수 있다. `AudioRecordEntity` optionally links to an exhibition and/or artwork — `ArtworkCard`(작품 조회용 DTO)는 `images`뿐 아니라 `audio` 목록도 `@Relation`으로 함께 가져온다. `AppRepository.assignVisitItemsToArtwork()`는 관람모드에서 기록한 사진/텍스트/음성을 특정 작품으로 옮긴다(사진→`ArtworkImageEntity`, 텍스트→`ArtworkEntity.description`에 이어붙이기, 음성→`AudioRecordEntity.artworkId`로 재배정하고 `exhibitionId`는 지움) — 원본은 관람모드 타임라인에서 삭제되는 이동 방식. Tags are shared many-to-many via `TagEntity` + `ExhibitionTagCrossRef`/`ArtworkTagCrossRef`, deduplicated by `normalizedName` (trimmed+lowercased, unique index) — always go through `TagDao.setExhibitionTags()` to add tags rather than inserting `TagEntity` directly, since it handles find-or-create and clearing old links.
 
 ### Adding a new entity/field
 
 1. Add/modify the `@Entity` in `Models.kt` (keep it `@Serializable` and add the field to `BackupPayload` if it should survive backup/restore).
-2. Register the entity in `AppDatabase.kt`'s `entities = [...]` list; bump `version` and supply a `Migration` if the app has shipped (currently `version = 1`, no migrations exist yet — schema-breaking changes are done by editing entities directly since there's no installed base).
+2. Register the entity in `AppDatabase.kt`'s `entities = [...]` list; bump `version` and supply a `Migration`. The app has an installed test base whose data must survive APK updates, so destructive migration is not allowed.
 3. Add DAO methods in `Dao.kt` (Flow-returning for UI observation, suspend for one-shot writes; add `allNow()`/`insertAll()` if it must participate in backup).
 4. Wire it through `AppRepository.kt`, then `AppViewModel.kt`, then a screen in `Screens.kt`.
 
@@ -157,29 +157,33 @@ Standard Hilt + Room + single-Activity Jetpack Compose Navigation app, all in on
 - 관람일 기반 달력 보기(요일 헤더 + 주 단위로 화면을 꽉 채우는 레이아웃, 좌우 스와이프로 월 이동)
 - 전시·작품·작가 검색, 아카이브 화면 내 검색(전시/작가/태그 탭 각각 로컬 필터링), 탭 좌우 스와이프
 - 전시 상세 화면에서 작품 빠르게 추가, 전시 등록 화면에서 작품을 같이 등록(임시 목록에 담았다가 전시 저장 시 일괄 등록)
+- 작품 한 개에 카메라 촬영·갤러리 다중 선택으로 여러 사진 첨부, 사진별 선택 해제, 출처/설명 링크·재료/기법·작품 설명·음성 녹음 저장. 작품 추가 화면(`ArtworkCreateScreen`)은 저장 후 화면을 나가지 않고 폼을 비운 채 계속 이어서 여러 작품을 등록할 수 있다("저장하고 계속 추가").
+- 작품 상세정보창(`artwork/{artworkId}`): 작품 카드를 누르면 진입, 여러 사진을 좌우로 스와이프해서 보고 탭하면 확대, 감상/출처 링크(탭하면 브라우저로 열림), 음성 기록 재생 표시. 전시 상세 화면의 작품 목록에서는 음성 기록이 있는 작품에 마이크 아이콘 표시.
+- 관람 모드: 촬영, 갤러리 다중 사진 첨부, 빠른 텍스트 메모, 음성 녹음·재생. "정리" 모드로 기록들을 다중 선택해 특정 작품에 배정할 수 있다(사진→작품 사진, 텍스트→작품 설명, 음성→작품 음성으로 이동, 원본은 삭제) — 기존 작품 선택 또는 그 자리에서 새 작품 만들기 모두 지원.
+- 위시리스트("가고싶은 전시") 탭: 하단 네비게이션 5번째 탭, 아직 관람하지 않은 전시를 저장. 달력에서는 위시리스트 전시 기간을 옅은 배경색으로 표시. 전시 상세 화면에서 "다녀왔어요" 버튼으로 관람일/별점/한줄평/상세감상을 입력하면 정식 관람 기록으로 전환된다.
+- 달력: 그날 방문한 전시에 포스터가 있으면 셀 전체를 포스터로 채우고 날짜 대신 그날의 관람 건수를 표시, 포스터가 없으면 날짜 숫자만 표시.
 - 포스터·작품 이미지 탭하면 핀치 줌으로 확대(`ZoomableImageDialog`)
 - 설정 화면에서 글자 크기 조절(작게/보통/크게, `SettingsStore` DataStore에 저장, 앱 전역 `LocalDensity`로 적용)
 - 로컬 데이터베이스(Room) 저장, 사진 앱 내부 보관
 - JSON+ZIP 전체 백업 및 복원 (교체 복원만 지원, 병합 복원은 미구현)
-- 음성 녹음용 `AudioRecorder` 코드는 있으나 실제 녹음·재생 UI는 아직 연결되지 않음
 
 ### 외부 연동 자동 기록 (부분 구현됨)
 
 `ExhibitionCreateScreen`에서 전시 링크를 붙여넣으면(범용 OG 메타태그 + `schema.org`/`Event` JSON-LD 파싱, 그리고 `sema.seoul.go.kr`/`nowonarts.kr` 전용 패치) 제목/설명/포스터/장소/기간/공식 링크가 자동으로 채워지는 기능이 구현됨. 다만:
 - **이름으로 온라인 검색하는 기능은 없다** — 한때 네이버 검색 API로 구현했었지만, 사용자가 API 키를 직접 발급·입력해야만 동작하는 구조라 실사용성이 떨어져 제거했다(2번째 세션에서 추가, 3번째 세션에서 제거). **키 발급을 요구하지 않는 대안이 없다면 이 방향의 기능을 다시 추가하지 말 것** — 필요하면 먼저 사용자와 상의.
 - **사이트별 정밀 파싱은 sema.seoul.go.kr, nowonarts.kr 2곳만 구현됨** — 그 외 사이트는 범용 OG/JSON-LD로만 처리되고, 못 찾은 필드(장소·기간 등)는 빈칸으로 남아 사용자가 직접 입력해야 함. 새 사이트를 추가하려면 반드시 그 사이트의 실제 HTML(사용자가 저장해서 제공)로 셀렉터를 검증한 뒤 `ExhibitionPageFetcher`에 패치 함수를 추가할 것 — 확인 없이 셀렉터를 추측해서 넣지 말 것.
-- **작품 목록 자동 추출은 범위에서 제외** — 사이트마다 구조가 달라 범용 파싱으로 신뢰성 있게 뽑을 수 없어서, 작품은 지금처럼 수동으로 추가.
+- **작품 목록 자동 추출은 불가능 판정** — 확인한 `sema.seoul.go.kr`/`nowonarts.kr` 실제 HTML에는 개별 작품 목록이 구조화되어 있지 않고 SeMA도 "작품수: 6" 같은 숫자만 제공한다. 자동 추출 대신 기록모드에서 팜플렛·설명카드를 촬영하거나 갤러리에서 여러 장 선택하고 출처 URL을 붙이는 수동 첨부 방식으로 대체했다.
 
 ### 향후 구현하고 싶은 기능 (미구현, 로드맵)
 
-- **전시 팜플렛 사진 촬영 자동 인식**: 카메라로 전시 팜플렛을 촬영하면 위 링크 가져오기와 동일하게 전시 정보가 자동으로 입력되는 기능 (OCR/이미지 인식 기반, 아이디어만 기록 — 미구현)
-- **관람 기능 (GitHub 이슈 #5)**: 전시 관람 모드, 관람 중 메모, 음성 녹음 지원, 작품 이미지 위 메모 기능
-- **전시 정보 자동화 후속 (GitHub 이슈 #4)**: 가져온 내용 필터링 개선, 자동 채움과 기존 입력값을 함께 표시, 작품 목록 자동 불러오기
+- **전시 팜플렛 사진 촬영 자동 인식 (GitHub 이슈 #9)**: 카메라로 전시 팜플렛을 촬영하면 위 링크 가져오기와 동일하게 전시 정보/작품 정보가 자동으로 입력되는 기능. OCR/이미지 인식 기반, 안 되면 팜플렛 텍스트만이라도 읽어오는 것이 목표 — 접근 방식(온디바이스 OCR vs 외부 API) 미정이라 착수 전 상의 필요.
+- **관람 기능 (GitHub 이슈 #5)**: 촬영/사진 첨부/텍스트 메모/음성 녹음, 기록을 작품별로 분류(GitHub 이슈 #12)까지 완료. 남은 건 이미지 위 그리기 주석(GitHub 이슈 #10)과 안드로이드 기본 `SpeechRecognizer` 기반 실시간 STT.
+- **전시 정보 자동화 후속 (GitHub 이슈 #4)**: 작품 목록 자동 불러오기는 구조화된 원본 데이터가 없어 중단하고 다중 사진/출처 링크 수동 첨부로 대체. 가져온 내용 필터링 개선과 자동 채움/기존 입력값 병렬 표시는 남아 있음.
+- **이미지 주석 (GitHub 이슈 #10)**: 작품 상세정보창(위 "현재 구현된 핵심 기능" 참고, 이슈 #8로 구현 완료)에서 사진을 단독으로 열고, 메모 버튼으로 그리기(간단한 그림판 수준) 또는 텍스트 메모를 이미지 위에 남기는 기능.
 - **사진 코멘트**: 한 전시 스레드 안에서 여러 사진 각각에 코멘트를 달 수 있는 기능
-- **이미지 주석**: 작품 이미지 위에 직접 그림이나 글로 메모를 남기는 기능
 - **3D 큐레이션**: 기록된 작품이나 검색 가능한 모든 작품을 가지고 3D 큐브 공간에서 직접 큐레이팅해보는 기능
 - **성능 최적화**: 앱 로딩 및 사용 중 렉이 최대한 없도록 최적화
-- 카메라 직접 촬영, 작품 상세 수정/삭제 화면, 백업에 이미지·음성 바이너리 포함, 병합 복원, DAO/UI 자동화 테스트 확대, 화면 디자인 다듬기 (README "아직 보완할 부분"에 기재된 기존 항목)
+- 작품 상세 수정/삭제 화면, 백업에 이미지·음성 바이너리 포함, 병합 복원, DAO/UI 자동화 테스트 확대, 화면 디자인 다듬기 (README "아직 보완할 부분"에 기재된 기존 항목)
 
 GitHub 이슈로 백로그를 관리한다(`gh issue list` 또는 저장소 Issues 탭) — 새 작업을 시작하기 전에 열린 이슈를 확인할 것.
 
