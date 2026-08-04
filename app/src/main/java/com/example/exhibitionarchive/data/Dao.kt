@@ -45,6 +45,7 @@ interface ArtistDao {
 interface ArtworkDao {
     @Transaction @Query("SELECT * FROM artworks WHERE exhibitionId=:exhibitionId ORDER BY displayOrder, createdAt") fun observeForExhibition(exhibitionId: Long): Flow<List<ArtworkCard>>
     @Transaction @Query("SELECT * FROM artworks WHERE artistId=:artistId ORDER BY createdAt DESC") fun observeForArtist(artistId: Long): Flow<List<ArtworkCard>>
+    @Transaction @Query("SELECT a.* FROM artworks a INNER JOIN artwork_tags x ON a.id=x.artworkId WHERE x.tagId=:tagId ORDER BY a.createdAt DESC") fun observeForTag(tagId: Long): Flow<List<ArtworkCard>>
     @Transaction @Query("SELECT * FROM artworks WHERE id=:id") fun observeCard(id: Long): Flow<ArtworkCard?>
     @Query("SELECT * FROM artworks WHERE title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%' OR personalReview LIKE '%' || :query || '%' ORDER BY updatedAt DESC") fun search(query: String): Flow<List<ArtworkEntity>>
     @Insert suspend fun insert(item: ArtworkEntity): Long
@@ -59,6 +60,7 @@ interface ArtworkDao {
 interface MediaDao {
     @Insert suspend fun insertImage(item: ArtworkImageEntity): Long
     @Insert suspend fun insertAudio(item: AudioRecordEntity): Long
+    @Query("DELETE FROM artwork_images WHERE id=:id") suspend fun deleteImage(id: Long)
     @Query("SELECT * FROM audio_records WHERE exhibitionId=:exhibitionId ORDER BY recordedAt DESC") fun observeAudioForExhibition(exhibitionId: Long): Flow<List<AudioRecordEntity>>
     @Query("SELECT * FROM audio_records WHERE artworkId=:artworkId ORDER BY recordedAt DESC") fun observeAudioForArtwork(artworkId: Long): Flow<List<AudioRecordEntity>>
     @Query("SELECT * FROM artwork_images") suspend fun allImages(): List<ArtworkImageEntity>

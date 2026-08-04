@@ -26,8 +26,10 @@ class AppViewModel @Inject constructor(
     val visitedExhibitions = repository.visitedExhibitions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val wishlist = repository.wishlist.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val fontScale = settingsStore.fontScale.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1f)
+    val gridColumns = settingsStore.gridColumns.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 2)
 
     fun setFontScale(scale: Float) { viewModelScope.launch { settingsStore.setFontScale(scale) } }
+    fun setGridColumns(columns: Int) { viewModelScope.launch { settingsStore.setGridColumns(columns) } }
     val visits = repository.visits.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val artists = repository.artists.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val tags = repository.tags.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -90,6 +92,15 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    fun updateExhibition(exhibition: ExhibitionEntity, tags: String, visit: VisitEntity?, onDone: () -> Unit) {
+        if (exhibition.title.isBlank()) { _message.value = "전시명을 입력하세요."; return }
+        viewModelScope.launch {
+            runCatching { repository.updateExhibition(exhibition, tags.split(','), visit) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "저장에 실패했습니다." }
+        }
+    }
+
     fun importExhibitionInfo(url: String, onResult: (ExhibitionImportInfo) -> Unit) {
         if (url.isBlank()) { _message.value = "링크를 입력하세요."; return }
         viewModelScope.launch {
@@ -127,9 +138,23 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    fun updateArtwork(artwork: ArtworkEntity, artistName: String?, newImagePaths: List<String>, newAudioClips: List<Pair<String, Long?>>, onDone: () -> Unit) {
+        if (artwork.title.isBlank()) { _message.value = "작품명을 입력하세요."; return }
+        viewModelScope.launch {
+            runCatching { repository.updateArtwork(artwork, artistName, newImagePaths, newAudioClips) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "저장에 실패했습니다." }
+        }
+    }
+
+    fun deleteArtworkImage(id: Long) { viewModelScope.launch { runCatching { repository.deleteArtworkImage(id) }.onFailure { _message.value = it.message ?: "삭제에 실패했습니다." } } }
+    fun deleteAudio(id: Long) { viewModelScope.launch { runCatching { repository.deleteAudio(id) }.onFailure { _message.value = it.message ?: "삭제에 실패했습니다." } } }
+
     fun exhibition(id: Long) = repository.exhibition(id)
     fun visitsFor(id: Long) = repository.visitsForExhibition(id)
     fun artworksFor(id: Long) = repository.artworksForExhibition(id)
+    fun artworksForArtist(id: Long) = repository.artworksForArtist(id)
+    fun artworksForTag(id: Long) = repository.artworksForTag(id)
     fun artwork(id: Long) = repository.artwork(id)
     fun audioFor(id: Long) = repository.audioForExhibition(id)
     fun visitNotesFor(id: Long) = repository.visitNotesForExhibition(id)
