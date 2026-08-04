@@ -2,6 +2,7 @@ package com.example.exhibitionarchive.util
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,8 +37,11 @@ class FileStore @Inject constructor(@ApplicationContext private val context: Con
         return File(dir, "${UUID.randomUUID()}.m4a")
     }
 
-    private fun newImageFile(): File {
+    fun newImageFile(): File {
         val dir = File(context.filesDir, "images").apply { mkdirs() }
         return File(dir, "${UUID.randomUUID()}.jpg")
     }
+
+    fun uriFor(file: File): Uri =
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }

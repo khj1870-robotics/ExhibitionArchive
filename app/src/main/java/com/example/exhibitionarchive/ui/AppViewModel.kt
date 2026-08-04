@@ -68,10 +68,18 @@ class AppViewModel @Inject constructor(
         }
     }
 
-    fun addArtwork(exhibitionId: Long, title: String, artist: String?, review: String?, imagePath: String?, onDone: () -> Unit) {
+    fun addArtwork(
+        exhibitionId: Long,
+        title: String,
+        artist: String?,
+        review: String?,
+        imagePaths: List<String> = emptyList(),
+        sourceUrl: String? = null,
+        onDone: () -> Unit
+    ) {
         if (title.isBlank()) { _message.value = "작품명을 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { repository.addArtwork(exhibitionId, title, artist, review, imagePath) }
+            runCatching { repository.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl) }
                 .onSuccess { onDone() }
                 .onFailure { _message.value = it.message ?: "작품 저장에 실패했습니다." }
         }
@@ -81,15 +89,25 @@ class AppViewModel @Inject constructor(
     fun visitsFor(id: Long) = repository.visitsForExhibition(id)
     fun artworksFor(id: Long) = repository.artworksForExhibition(id)
     fun audioFor(id: Long) = repository.audioForExhibition(id)
+    fun visitNotesFor(id: Long) = repository.visitNotesForExhibition(id)
     fun tagsFor(id: Long) = repository.tagsForExhibition(id)
     fun searchExhibitions(q: String) = repository.searchExhibitions(q)
     fun searchArtworks(q: String) = repository.searchArtworks(q)
     fun searchArtists(q: String) = repository.searchArtists(q)
 
 
-    fun saveAudio(exhibitionId: Long, filePath: String, title: String = "음성 기록", onDone: () -> Unit = {}) {
+    fun addVisitNote(exhibitionId: Long, photoPath: String?, text: String?, onDone: () -> Unit = {}) {
+        if (photoPath == null && text.isNullOrBlank()) { _message.value = "메모를 입력하세요."; return }
         viewModelScope.launch {
-            runCatching { repository.addAudio(AudioRecordEntity(exhibitionId = exhibitionId, title = title, filePath = filePath)) }
+            runCatching { repository.addVisitNote(exhibitionId, photoPath, text) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "관람 메모 저장에 실패했습니다." }
+        }
+    }
+
+    fun saveAudio(exhibitionId: Long, filePath: String, title: String = "음성 기록", durationMillis: Long? = null, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.addAudio(AudioRecordEntity(exhibitionId = exhibitionId, title = title, filePath = filePath, durationMillis = durationMillis)) }
                 .onSuccess { onDone() }
                 .onFailure { _message.value = it.message ?: "음성 저장에 실패했습니다." }
         }

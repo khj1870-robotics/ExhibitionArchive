@@ -66,6 +66,15 @@ interface MediaDao {
 }
 
 @Dao
+interface VisitNoteDao {
+    @Query("SELECT * FROM visit_notes WHERE exhibitionId=:exhibitionId ORDER BY createdAt DESC") fun observeForExhibition(exhibitionId: Long): Flow<List<VisitNoteEntity>>
+    @Insert suspend fun insert(item: VisitNoteEntity): Long
+    @Delete suspend fun delete(item: VisitNoteEntity)
+    @Query("SELECT * FROM visit_notes") suspend fun allNow(): List<VisitNoteEntity>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<VisitNoteEntity>)
+}
+
+@Dao
 interface TagDao {
     @Query("SELECT * FROM tags ORDER BY name") fun observeAll(): Flow<List<TagEntity>>
     @Query("SELECT * FROM tags WHERE normalizedName=:normalized LIMIT 1") suspend fun find(normalized: String): TagEntity?

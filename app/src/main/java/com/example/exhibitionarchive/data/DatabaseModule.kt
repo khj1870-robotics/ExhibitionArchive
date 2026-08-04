@@ -15,5 +15,6 @@ object DatabaseModule {
     @Provides @Singleton
     fun database(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "exhibition_archive.db")
-                        .build()
+            .addMigrations(MIGRATION_1_2)
+            .build()
 }

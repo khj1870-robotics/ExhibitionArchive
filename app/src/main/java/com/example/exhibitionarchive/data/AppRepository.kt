@@ -17,6 +17,7 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
     fun artworksForExhibition(id: Long) = db.artworkDao().observeForExhibition(id)
     fun artwork(id: Long) = db.artworkDao().observeCard(id)
     fun audioForExhibition(id: Long) = db.mediaDao().observeAudioForExhibition(id)
+    fun visitNotesForExhibition(id: Long) = db.visitNoteDao().observeForExhibition(id)
     fun tagsForExhibition(id: Long) = db.tagDao().observeForExhibition(id)
 
     suspend fun createExhibition(
@@ -49,16 +50,35 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         exhibitionId
     }
 
-    suspend fun addArtwork(exhibitionId: Long, title: String, artistName: String?, review: String?, imagePath: String?): Long = db.withTransaction {
+    suspend fun addArtwork(
+        exhibitionId: Long,
+        title: String,
+        artistName: String?,
+        review: String?,
+        imagePaths: List<String> = emptyList(),
+        sourceUrl: String? = null
+    ): Long = db.withTransaction {
         val artistId = artistName?.trim()?.takeIf { it.isNotEmpty() }?.let { name ->
             db.artistDao().insert(ArtistEntity(name = name))
         }
-        val id = db.artworkDao().insert(ArtworkEntity(exhibitionId = exhibitionId, artistId = artistId, title = title.trim(), personalReview = review?.trim()?.ifBlank { null }))
-        imagePath?.let { db.mediaDao().insertImage(ArtworkImageEntity(artworkId = id, localPath = it, sourceType = "GALLERY", isRepresentative = true)) }
+        val id = db.artworkDao().insert(
+            ArtworkEntity(
+                exhibitionId = exhibitionId,
+                artistId = artistId,
+                title = title.trim(),
+                personalReview = review?.trim()?.ifBlank { null },
+                sourceUrl = sourceUrl?.trim()?.ifBlank { null }
+            )
+        )
+        imagePaths.forEachIndexed { index, path ->
+            db.mediaDao().insertImage(ArtworkImageEntity(artworkId = id, localPath = path, sourceType = "GALLERY", isRepresentative = index == 0))
+        }
         id
     }
 
     suspend fun addAudio(item: AudioRecordEntity) = db.mediaDao().insertAudio(item)
+    suspend fun addVisitNote(exhibitionId: Long, photoPath: String?, text: String?) =
+        db.visitNoteDao().insert(VisitNoteEntity(exhibitionId = exhibitionId, photoPath = photoPath, text = text?.trim()?.ifBlank { null }))
     suspend fun deleteExhibition(item: ExhibitionEntity) = db.exhibitionDao().delete(item)
     fun searchExhibitions(q: String): Flow<List<ExhibitionEntity>> = db.exhibitionDao().search(q)
     fun searchArtworks(q: String): Flow<List<ArtworkEntity>> = db.artworkDao().search(q)
@@ -67,7 +87,8 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
     suspend fun backupPayload() = BackupPayload(
         exhibitions = db.exhibitionDao().allNow(), visits = db.visitDao().allNow(), artists = db.artistDao().allNow(),
         artworks = db.artworkDao().allNow(), images = db.mediaDao().allImages(), audio = db.mediaDao().allAudio(),
-        tags = db.tagDao().allNow(), exhibitionTags = db.tagDao().allExhibitionRefs(), artworkTags = db.tagDao().allArtworkRefs()
+        tags = db.tagDao().allNow(), exhibitionTags = db.tagDao().allExhibitionRefs(), artworkTags = db.tagDao().allArtworkRefs(),
+        visitNotes = db.visitNoteDao().allNow()
     )
 
     suspend fun replaceFromBackup(payload: BackupPayload) = db.withTransaction {
@@ -78,6 +99,7 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         db.artworkDao().insertAll(payload.artworks)
         db.mediaDao().insertImages(payload.images)
         db.mediaDao().insertAudio(payload.audio)
+        db.visitNoteDao().insertAll(payload.visitNotes)
         db.tagDao().insertAll(payload.tags)
         db.tagDao().insertExhibitionRefs(payload.exhibitionTags)
         db.tagDao().insertArtworkRefs(payload.artworkTags)
