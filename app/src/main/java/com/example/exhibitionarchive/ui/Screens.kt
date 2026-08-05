@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -244,17 +245,26 @@ private fun DateField(value: String, onValueChange: (String) -> Unit, label: Str
             dismissButton = { TextButton(onClick = { showPicker = false }) { Text("취소") } }
         ) { DatePicker(state = state) }
     }
-    OutlinedTextField(
-        value = value,
-        onValueChange = {},
-        readOnly = true,
-        label = { Text(label) },
-        trailingIcon = {
-            if (value.isNotBlank()) IconButton(onClick = { onValueChange("") }) { Icon(Icons.Default.Close, "지우기") }
-            else Icon(Icons.Default.CalendarMonth, null)
-        },
-        modifier = modifier.clickable { showPicker = true }
-    )
+    Box(modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showPicker = true }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            enabled = false,
+            label = { Text(label) },
+            trailingIcon = {
+                if (value.isNotBlank()) IconButton(onClick = { onValueChange("") }) { Icon(Icons.Default.Close, "지우기") }
+                else Icon(Icons.Default.CalendarMonth, null)
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                disabledBorderColor = MaterialTheme.colorScheme.outline,
+                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 @Composable
@@ -444,9 +454,9 @@ private fun RatingBar(rating: Float, onRatingChange: ((Float) -> Unit)? = null) 
 private data class PendingArtwork(val title: String, val artist: String?, val review: String?, val imagePaths: List<String>, val sourceUrl: String?, val medium: String?, val description: String?, val audioClips: List<Pair<String, Long?>>, val tags: String)
 
 private val TAG_PRESET_CATEGORIES: List<Pair<String, List<String>>> = listOf(
-    "사조" to listOf("다다이즘", "인상주의", "후기인상주의", "입체주의", "초현실주의", "표현주의", "추상표현주의", "미니멀리즘", "팝아트", "신고전주의", "낭만주의", "사실주의", "야수파", "미래주의", "구성주의", "개념미술", "단색화"),
-    "양식" to listOf("아르누보", "아르데코", "바로크", "로코코"),
-    "장르·기법" to listOf("키네틱아트", "옵아트", "대지미술", "설치미술", "미디어아트", "회화", "조각", "판화", "드로잉", "콜라주", "사진", "도자공예", "섬유공예", "건축", "그래피티", "일러스트레이션", "민화")
+    "사조·양식" to listOf("다다이즘", "인상주의", "후기인상주의", "입체주의", "초현실주의", "표현주의", "추상표현주의", "미니멀리즘", "팝아트", "신고전주의", "낭만주의", "사실주의", "야수파", "미래주의", "구성주의", "개념미술", "단색화", "아르누보", "아르데코", "바로크", "로코코"),
+    "장르" to listOf("회화", "조각", "사진", "건축", "설치미술", "미디어아트", "그래피티", "일러스트레이션", "민화", "도자공예", "섬유공예"),
+    "기법" to listOf("판화", "드로잉", "콜라주", "키네틱아트", "옵아트", "대지미술")
 )
 
 @Composable
@@ -820,14 +830,14 @@ private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onDone: ()
             item { AudioClipsEditor(recording, audioClips) { clip -> audioClips = audioClips - clip } }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(
-                        onClick = { if (title.isNotBlank()) vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { onDone() } else onDone() },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("완료") }
                     Button(
                         onClick = { vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { savedCount++; resetForm() } },
                         modifier = Modifier.weight(1f)
                     ) { Text("저장하고 계속 추가") }
+                    OutlinedButton(
+                        onClick = { if (title.isNotBlank()) vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { onDone() } else onDone() },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("완료") }
                 }
             }
         }
@@ -1060,6 +1070,8 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
     var selectedNoteIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var selectedAudioIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showAssignDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var editingNote by remember { mutableStateOf<VisitNoteEntity?>(null) }
 
     zoomImagePath?.let { ZoomableImageDialog(it) { zoomImagePath = null } }
     if (showAssignDialog) {
@@ -1072,6 +1084,36 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                 }
             }
         )
+    }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("삭제") },
+            text = { Text("선택한 ${selectedNoteIds.size + selectedAudioIds.size}개 항목을 삭제할까요?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteVisitItems(selectedNoteIds.toList(), selectedAudioIds.toList()) {
+                        selectMode = false; selectedNoteIds = emptySet(); selectedAudioIds = emptySet(); showDeleteConfirm = false
+                    }
+                }) { Text("삭제") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("취소") } }
+        )
+    }
+    editingNote?.let { note ->
+        var editText by remember(note.id) { mutableStateOf(note.text.orEmpty()) }
+        Dialog(onDismissRequest = { editingNote = null }) {
+            Surface(shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(20.dp).fillMaxWidth().imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("메모 수정", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(editText, { editText = it }, minLines = 3, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { editingNote = null }) { Text("취소") }
+                        Button(onClick = { vm.updateVisitNote(note, editText) { editingNote = null } }, enabled = editText.isNotBlank()) { Text("저장") }
+                    }
+                }
+            }
+        }
     }
 
     val openGallery = rememberMultipleImagePicker(vm) { paths ->
@@ -1128,6 +1170,9 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                     }) { Icon(if (selectMode) Icons.Default.Close else Icons.Default.ArrowBack, null) }
                 },
                 actions = {
+                    if (selectMode && selectedCount > 0) {
+                        IconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, "삭제") }
+                    }
                     if (timeline.isNotEmpty()) {
                         IconButton(onClick = {
                             selectMode = !selectMode
@@ -1181,7 +1226,7 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                                 note.photoPath?.let { path ->
                                     Card(Modifier.fillMaxWidth().clickable { if (selectMode) toggleNote() else zoomImagePath = path }) { AsyncImage(model = File(path), contentDescription = "관람 사진", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(220.dp)) }
                                 }
-                                note.text?.let { text -> Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable(enabled = selectMode) { toggleNote() }) { Text(text, Modifier.padding(14.dp)) } }
+                                note.text?.let { text -> Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable { if (selectMode) toggleNote() else editingNote = note }) { Text(text, Modifier.padding(14.dp)) } }
                             }
                         }
                     }
