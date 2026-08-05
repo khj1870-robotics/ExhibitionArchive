@@ -173,6 +173,16 @@ data class ArtworkCard(
     @Relation(parentColumn = "id", entityColumn = "artworkId") val audio: List<AudioRecordEntity>
 )
 
+data class TagUsage(
+    @Embedded val tag: TagEntity,
+    val count: Int
+)
+
+data class ArtistUsage(
+    @Embedded val artist: ArtistEntity,
+    val count: Int
+)
+
 @Serializable
 data class BackupPayload(
     val schemaVersion: Int = 2,
