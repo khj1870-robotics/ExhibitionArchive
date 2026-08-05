@@ -416,7 +416,7 @@ private val TAG_PRESETS = listOf(
 )
 
 @Composable
-private fun TagInputField(value: String, onValueChange: (String) -> Unit, label: String = "태그, 쉼표로 구분") {
+private fun TagInputField(value: String, label: String = "태그, 쉼표로 구분", onValueChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(value, onValueChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1396,7 +1396,7 @@ private fun ArchiveScreen(vm: AppViewModel, onOpen: (Long) -> Unit, onOpenArtist
                     }
                     else -> Column(Modifier.fillMaxSize()) {
                         SortChipRow(TagSort.entries, tagSort, { it.label }) { tagSort = it }
-                        LazyColumn(Modifier.fillMaxWidth().weight(1f)) { items(sortedTags) { ListItem(headlineContent = { Text("#${it.name}") }, supportingContent = { tagCountById[it.id]?.let { c -> { Text("${c}회 사용") } } }, leadingContent = { Icon(Icons.Default.Tag, null) }, modifier = Modifier.clickable { onOpenTag(it.id) }) } }
+                        LazyColumn(Modifier.fillMaxWidth().weight(1f)) { items(sortedTags) { ListItem(headlineContent = { Text("#${it.name}") }, supportingContent = tagCountById[it.id]?.let { c -> { Text("${c}회 사용") } }, leadingContent = { Icon(Icons.Default.Tag, null) }, modifier = Modifier.clickable { onOpenTag(it.id) }) } }
                     }
                 }
             }
