@@ -69,6 +69,7 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertImages(items: List<ArtworkImageEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAudio(items: List<AudioRecordEntity>)
     @Query("DELETE FROM audio_records WHERE id=:id") suspend fun deleteAudio(id: Long)
+    @Query("DELETE FROM audio_records WHERE id IN (:ids)") suspend fun deleteAudioByIds(ids: List<Long>)
     @Query("UPDATE audio_records SET artworkId=:artworkId, exhibitionId=NULL WHERE id IN (:ids)") suspend fun reassignToArtwork(ids: List<Long>, artworkId: Long)
 }
 
@@ -76,6 +77,7 @@ interface MediaDao {
 interface VisitNoteDao {
     @Query("SELECT * FROM visit_notes WHERE exhibitionId=:exhibitionId ORDER BY createdAt DESC") fun observeForExhibition(exhibitionId: Long): Flow<List<VisitNoteEntity>>
     @Insert suspend fun insert(item: VisitNoteEntity): Long
+    @Update suspend fun update(item: VisitNoteEntity)
     @Delete suspend fun delete(item: VisitNoteEntity)
     @Query("SELECT * FROM visit_notes") suspend fun allNow(): List<VisitNoteEntity>
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAll(items: List<VisitNoteEntity>)

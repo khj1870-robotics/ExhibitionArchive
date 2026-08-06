@@ -11,6 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,10 +56,13 @@ import coil3.compose.AsyncImage
 import com.example.exhibitionarchive.data.*
 import com.example.exhibitionarchive.util.AudioRecorder
 import com.example.exhibitionarchive.util.ExhibitionImportInfo
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 @Composable
@@ -220,6 +225,46 @@ private fun ExhibitionGridItem(item: ExhibitionEntity, onOpen: (Long) -> Unit) {
 private fun Poster(path: String?, modifier: Modifier) {
     if (path == null) Box(modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(Icons.Default.Image, null) }
     else AsyncImage(model = File(path), contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier.clip(RoundedCornerShape(10.dp)))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateField(value: String, onValueChange: (String) -> Unit, label: String, modifier: Modifier = Modifier) {
+    var showPicker by remember { mutableStateOf(false) }
+    if (showPicker) {
+        val initialMillis = value.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli()
+        val state = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { millis -> onValueChange(Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toString()) }
+                    showPicker = false
+                }) { Text("확인") }
+            },
+            dismissButton = { TextButton(onClick = { showPicker = false }) { Text("취소") } }
+        ) { DatePicker(state = state) }
+    }
+    Box(modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showPicker = true }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            enabled = false,
+            label = { Text(label) },
+            trailingIcon = {
+                if (value.isNotBlank()) IconButton(onClick = { onValueChange("") }) { Icon(Icons.Default.Close, "지우기") }
+                else Icon(Icons.Default.CalendarMonth, null)
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                disabledBorderColor = MaterialTheme.colorScheme.outline,
+                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 @Composable
@@ -408,26 +453,30 @@ private fun RatingBar(rating: Float, onRatingChange: ((Float) -> Unit)? = null) 
 
 private data class PendingArtwork(val title: String, val artist: String?, val review: String?, val imagePaths: List<String>, val sourceUrl: String?, val medium: String?, val description: String?, val audioClips: List<Pair<String, Long?>>, val tags: String)
 
-private val TAG_PRESETS = listOf(
-    "다다이즘", "인상주의", "후기인상주의", "입체주의", "초현실주의", "표현주의", "추상표현주의", "미니멀리즘", "팝아트",
-    "아르누보", "아르데코", "바로크", "로코코", "신고전주의", "낭만주의", "사실주의", "야수파", "미래주의", "구성주의",
-    "개념미술", "키네틱아트", "옵아트", "대지미술", "설치미술", "미디어아트",
-    "회화", "조각", "판화", "드로잉", "콜라주", "사진", "도자공예", "섬유공예", "건축", "그래피티", "일러스트레이션", "민화", "단색화"
+private val TAG_PRESET_CATEGORIES: List<Pair<String, List<String>>> = listOf(
+    "사조·양식" to listOf("다다이즘", "인상주의", "후기인상주의", "입체주의", "초현실주의", "표현주의", "추상표현주의", "미니멀리즘", "팝아트", "신고전주의", "낭만주의", "사실주의", "야수파", "미래주의", "구성주의", "개념미술", "단색화", "아르누보", "아르데코", "바로크", "로코코"),
+    "장르" to listOf("회화", "조각", "사진", "건축", "설치미술", "미디어아트", "그래피티", "일러스트레이션", "민화", "도자공예", "섬유공예"),
+    "기법" to listOf("판화", "드로잉", "콜라주", "키네틱아트", "옵아트", "대지미술")
 )
 
 @Composable
 private fun TagInputField(value: String, label: String = "태그, 쉼표로 구분", onValueChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(value, onValueChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val selected = value.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-            TAG_PRESETS.forEach { preset ->
-                val already = selected.contains(preset.lowercase())
-                AssistChip(
-                    onClick = { if (!already) onValueChange(if (value.isBlank()) preset else "$value, $preset") },
-                    label = { Text(preset) },
-                    enabled = !already
-                )
+        val selected = value.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        TAG_PRESET_CATEGORIES.forEach { (category, presets) ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    presets.forEach { preset ->
+                        val already = selected.contains(preset.lowercase())
+                        AssistChip(
+                            onClick = { if (!already) onValueChange(if (value.isBlank()) preset else "$value, $preset") },
+                            label = { Text(preset) },
+                            enabled = !already
+                        )
+                    }
+                }
             }
         }
     }
@@ -463,11 +512,11 @@ private fun ExhibitionCreateScreen(vm: AppViewModel, initialDate: String? = null
             item { OutlinedTextField(description, { description = it }, label = { Text("전시 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(startDate, { startDate = it }, label = { Text("전시 시작일") }, modifier = Modifier.weight(1f))
-                    OutlinedTextField(endDate, { endDate = it }, label = { Text("전시 종료일") }, modifier = Modifier.weight(1f))
+                    DateField(startDate, { startDate = it }, "전시 시작일", Modifier.weight(1f))
+                    DateField(endDate, { endDate = it }, "전시 종료일", Modifier.weight(1f))
                 }
             }
-            item { OutlinedTextField(date, { date = it }, label = { Text("관람일 (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth()) }
+            item { DateField(date, { date = it }, "관람일", Modifier.fillMaxWidth()) }
             item { OutlinedTextField(venue, { venue = it }, label = { Text("장소") }, modifier = Modifier.fillMaxWidth()) }
             item { OutlinedTextField(officialUrl, { officialUrl = it }, label = { Text("공식 링크") }, modifier = Modifier.fillMaxWidth()) }
             item {
@@ -540,8 +589,8 @@ private fun ExhibitionEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit)
             item { OutlinedTextField(description, { description = it }, label = { Text("전시 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(startDate, { startDate = it }, label = { Text("전시 시작일") }, modifier = Modifier.weight(1f))
-                    OutlinedTextField(endDate, { endDate = it }, label = { Text("전시 종료일") }, modifier = Modifier.weight(1f))
+                    DateField(startDate, { startDate = it }, "전시 시작일", Modifier.weight(1f))
+                    DateField(endDate, { endDate = it }, "전시 종료일", Modifier.weight(1f))
                 }
             }
             item { OutlinedTextField(venue, { venue = it }, label = { Text("장소") }, modifier = Modifier.fillMaxWidth()) }
@@ -549,7 +598,7 @@ private fun ExhibitionEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit)
             item { TagInputField(tagsText) { tagsText = it } }
             if (visits.isNotEmpty()) {
                 item { HorizontalDivider() }
-                item { OutlinedTextField(date, { date = it }, label = { Text("관람일 (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth()) }
+                item { DateField(date, { date = it }, "관람일", Modifier.fillMaxWidth()) }
                 item {
                     Column {
                         Text("별점", style = MaterialTheme.typography.labelLarge)
@@ -732,7 +781,7 @@ private fun MarkVisitedDialog(vm: AppViewModel, exhibitionId: Long, onDismiss: (
         Surface(shape = RoundedCornerShape(16.dp)) {
             Column(Modifier.padding(20.dp).fillMaxWidth().heightIn(max = 560.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("다녀왔어요", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(date, { date = it }, label = { Text("관람일 (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth())
+                DateField(date, { date = it }, "관람일", Modifier.fillMaxWidth())
                 Column {
                     Text("별점", style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.height(4.dp))
@@ -780,10 +829,16 @@ private fun ArtworkCreateScreen(vm: AppViewModel, exhibitionId: Long, onDone: ()
             item { TagInputField(tags) { tags = it } }
             item { AudioClipsEditor(recording, audioClips) { clip -> audioClips = audioClips - clip } }
             item {
-                Button(
-                    onClick = { vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { savedCount++; resetForm() } },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("저장하고 계속 추가") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { savedCount++; resetForm() } },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("저장하고 계속 추가") }
+                    OutlinedButton(
+                        onClick = { if (title.isNotBlank()) vm.addArtwork(exhibitionId, title, artist, review, imagePaths, sourceUrl, medium, description, audioClips, tags.split(',')) { onDone() } else onDone() },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("완료") }
+                }
             }
         }
     }
@@ -874,6 +929,7 @@ private fun ArtworkEditScreen(vm: AppViewModel, id: Long, onDone: () -> Unit) {
 private fun ArtworkDetailScreen(vm: AppViewModel, artworkId: Long, onBack: () -> Unit, onEdit: (Long) -> Unit) {
     val context = LocalContext.current
     val card by vm.artwork(artworkId).collectAsStateWithLifecycle(initialValue = null)
+    val tags by vm.tagsForArtwork(artworkId).collectAsStateWithLifecycle(initialValue = emptyList())
     var zoomImagePath by remember { mutableStateOf<String?>(null) }
     zoomImagePath?.let { ZoomableImageDialog(it) { zoomImagePath = null } }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
@@ -930,6 +986,7 @@ private fun ArtworkDetailScreen(vm: AppViewModel, artworkId: Long, onBack: () ->
                             Text(url, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
+                    if (tags.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) { tags.take(4).forEach { AssistChip(onClick = {}, label = { Text("#${it.name}") }) } }
                     if (artwork.audio.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Text("음성 기록", style = MaterialTheme.typography.titleSmall)
@@ -1001,8 +1058,11 @@ private fun formatDuration(durationMillis: Long): String {
 private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> Unit) {
     val notes by vm.visitNotesFor(exhibitionId).collectAsStateWithLifecycle(initialValue = emptyList())
     val audioRecords by vm.audioFor(exhibitionId).collectAsStateWithLifecycle(initialValue = emptyList())
+    val keyboard = LocalSoftwareKeyboardController.current
     var memo by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("") }
+    var toast by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(toast) { if (toast != null) { delay(1500); toast = null } }
     var zoomImagePath by remember { mutableStateOf<String?>(null) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     var playingAudioId by remember { mutableStateOf<Long?>(null) }
@@ -1010,6 +1070,8 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
     var selectedNoteIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var selectedAudioIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showAssignDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var editingNote by remember { mutableStateOf<VisitNoteEntity?>(null) }
 
     zoomImagePath?.let { ZoomableImageDialog(it) { zoomImagePath = null } }
     if (showAssignDialog) {
@@ -1023,18 +1085,49 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
             }
         )
     }
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("삭제") },
+            text = { Text("선택한 ${selectedNoteIds.size + selectedAudioIds.size}개 항목을 삭제할까요?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteVisitItems(selectedNoteIds.toList(), selectedAudioIds.toList()) {
+                        selectMode = false; selectedNoteIds = emptySet(); selectedAudioIds = emptySet(); showDeleteConfirm = false
+                    }
+                }) { Text("삭제") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("취소") } }
+        )
+    }
+    editingNote?.let { note ->
+        var editText by remember(note.id) { mutableStateOf(note.text.orEmpty()) }
+        Dialog(onDismissRequest = { editingNote = null }) {
+            Surface(shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(20.dp).fillMaxWidth().imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("메모 수정", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(editText, { editText = it }, minLines = 3, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { editingNote = null }) { Text("취소") }
+                        Button(onClick = { vm.updateVisitNote(note, editText) { editingNote = null } }, enabled = editText.isNotBlank()) { Text("저장") }
+                    }
+                }
+            }
+        }
+    }
 
     val openGallery = rememberMultipleImagePicker(vm) { paths ->
         paths.forEach { path -> vm.addVisitNote(exhibitionId, path, null) }
+        toast = "사진 추가 완료"
     }
     val openCamera = rememberCameraCapture(
         vm,
-        onCaptured = { path -> vm.addVisitNote(exhibitionId, path, null) },
+        onCaptured = { path -> vm.addVisitNote(exhibitionId, path, null); toast = "사진 촬영 완료" },
         onPermissionDenied = { status = "카메라 권한이 필요합니다." }
     )
     val recording = rememberAudioRecording(
         vm,
-        onSaved = { path, duration -> vm.saveAudio(exhibitionId, path, durationMillis = duration); status = "음성 메모 저장 완료" },
+        onSaved = { path, duration -> vm.saveAudio(exhibitionId, path, durationMillis = duration); toast = "음성 메모 저장 완료" },
         onError = { status = it }
     )
 
@@ -1077,6 +1170,9 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                     }) { Icon(if (selectMode) Icons.Default.Close else Icons.Default.ArrowBack, null) }
                 },
                 actions = {
+                    if (selectMode && selectedCount > 0) {
+                        IconButton(onClick = { showDeleteConfirm = true }) { Icon(Icons.Default.Delete, "삭제") }
+                    }
                     if (timeline.isNotEmpty()) {
                         IconButton(onClick = {
                             selectMode = !selectMode
@@ -1092,7 +1188,8 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
             }
         }
     ) { p ->
-        LazyColumn(Modifier.fillMaxSize().padding(p).imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(Modifier.fillMaxSize().padding(p)) {
+        LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (!selectMode) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1107,11 +1204,11 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                         Text(if (recording.isRecording) "녹음 정지" else "녹음 시작")
                     }
                 }
-                if (status.isNotBlank()) item { Text(status, color = if (status.contains("필요") || status.contains("못했습니다")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary) }
+                if (status.isNotBlank()) item { Text(status, color = MaterialTheme.colorScheme.error) }
                 item {
                     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(memo, { memo = it }, label = { Text("빠른 메모") }, minLines = 2, modifier = Modifier.weight(1f))
-                        Button(onClick = { vm.addVisitNote(exhibitionId, null, memo) { memo = "" } }, enabled = memo.isNotBlank()) { Text("추가") }
+                        Button(onClick = { vm.addVisitNote(exhibitionId, null, memo) { memo = ""; toast = "메모 추가 완료"; keyboard?.hide() } }, enabled = memo.isNotBlank()) { Text("추가") }
                     }
                 }
             }
@@ -1129,7 +1226,7 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                                 note.photoPath?.let { path ->
                                     Card(Modifier.fillMaxWidth().clickable { if (selectMode) toggleNote() else zoomImagePath = path }) { AsyncImage(model = File(path), contentDescription = "관람 사진", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(220.dp)) }
                                 }
-                                note.text?.let { text -> Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable(enabled = selectMode) { toggleNote() }) { Text(text, Modifier.padding(14.dp)) } }
+                                note.text?.let { text -> Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable { if (selectMode) toggleNote() else editingNote = note }) { Text(text, Modifier.padding(14.dp)) } }
                             }
                         }
                     }
@@ -1150,6 +1247,15 @@ private fun VisitModeScreen(vm: AppViewModel, exhibitionId: Long, onDone: () -> 
                     }
                 }
             }
+        }
+        toast?.let { message ->
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(20.dp),
+                tonalElevation = 4.dp,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+            ) { Text(message, Modifier.padding(horizontal = 14.dp, vertical = 6.dp), style = MaterialTheme.typography.bodySmall) }
+        }
         }
     }
 }
@@ -1489,8 +1595,8 @@ private fun WishlistCreateScreen(vm: AppViewModel, onBack: () -> Unit, onDone: (
             item { OutlinedTextField(description, { description = it }, label = { Text("전시 설명") }, minLines = 2, modifier = Modifier.fillMaxWidth()) }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(startDate, { startDate = it }, label = { Text("전시 시작일") }, modifier = Modifier.weight(1f))
-                    OutlinedTextField(endDate, { endDate = it }, label = { Text("전시 종료일") }, modifier = Modifier.weight(1f))
+                    DateField(startDate, { startDate = it }, "전시 시작일", Modifier.weight(1f))
+                    DateField(endDate, { endDate = it }, "전시 종료일", Modifier.weight(1f))
                 }
             }
             item { OutlinedTextField(venue, { venue = it }, label = { Text("장소") }, modifier = Modifier.fillMaxWidth()) }
