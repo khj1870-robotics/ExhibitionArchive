@@ -146,6 +146,8 @@ class AppRepository @Inject constructor(private val db: AppDatabase) {
         if (noteIds.isNotEmpty()) db.visitNoteDao().deleteByIds(noteIds)
         if (audioIds.isNotEmpty()) db.mediaDao().deleteAudioByIds(audioIds)
     }
+    suspend fun addAnnotatedImage(artworkId: Long, path: String) =
+        db.mediaDao().insertImage(ArtworkImageEntity(artworkId = artworkId, localPath = path, sourceType = "ANNOTATED"))
     suspend fun deleteExhibition(item: ExhibitionEntity) = db.exhibitionDao().delete(item)
     fun searchExhibitions(q: String): Flow<List<ExhibitionEntity>> = db.exhibitionDao().search(q)
     fun searchArtworks(q: String): Flow<List<ArtworkEntity>> = db.artworkDao().search(q)

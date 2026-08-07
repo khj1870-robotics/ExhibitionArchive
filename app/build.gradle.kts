@@ -25,7 +25,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 2
-        versionName = "0.7.1"
+        versionName = "0.8.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
     }

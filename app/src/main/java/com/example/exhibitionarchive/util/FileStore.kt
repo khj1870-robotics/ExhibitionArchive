@@ -1,6 +1,7 @@
 package com.example.exhibitionarchive.util
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,6 +22,12 @@ class FileStore @Inject constructor(@ApplicationContext private val context: Con
             file.outputStream().use { input.copyTo(it) }
         }
         return file.absolutePath
+    }
+
+    suspend fun saveBitmap(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
+        val file = newImageFile()
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+        file.absolutePath
     }
 
     suspend fun downloadImage(url: String): String? = withContext(Dispatchers.IO) {
