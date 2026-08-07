@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -420,7 +421,7 @@ private fun AudioClipsEditor(recording: AudioRecordingController, clips: List<Pa
 }
 
 @Composable
-private fun ZoomableImageDialog(path: String, onDismiss: () -> Unit, onAnnotate: (() -> Unit)? = null) {
+private fun ZoomableImageDialog(path: String, onAnnotate: (() -> Unit)? = null, onDismiss: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
