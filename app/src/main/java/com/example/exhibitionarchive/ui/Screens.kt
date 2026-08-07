@@ -3,13 +3,21 @@ package com.example.exhibitionarchive.ui
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Paint as AndroidPaint
 import android.media.MediaPlayer
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
@@ -32,8 +40,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -56,8 +68,10 @@ import coil3.compose.AsyncImage
 import com.example.exhibitionarchive.data.*
 import com.example.exhibitionarchive.util.AudioRecorder
 import com.example.exhibitionarchive.util.ExhibitionImportInfo
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -406,7 +420,7 @@ private fun AudioClipsEditor(recording: AudioRecordingController, clips: List<Pa
 }
 
 @Composable
-private fun ZoomableImageDialog(path: String, onDismiss: () -> Unit) {
+private fun ZoomableImageDialog(path: String, onDismiss: () -> Unit, onAnnotate: (() -> Unit)? = null) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
@@ -424,7 +438,190 @@ private fun ZoomableImageDialog(path: String, onDismiss: () -> Unit) {
                 model = File(path), contentDescription = null, contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize().graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
             )
-            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) { Icon(Icons.Default.Close, "닫기", tint = Color.White) }
+            Row(modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                if (onAnnotate != null) IconButton(onClick = onAnnotate) { Icon(Icons.Default.Edit, "메모", tint = Color.White) }
+                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "닫기", tint = Color.White) }
+            }
+        }
+    }
+}
+
+private sealed interface ImageAnnotation
+private data class StrokeAnnotation(val points: List<Offset>, val color: Color) : ImageAnnotation
+private data class TextAnnotationItem(val position: Offset, val text: String, val color: Color) : ImageAnnotation
+
+private val ANNOTATE_COLORS = listOf(Color.Red, Color(0xFFFFC107), Color(0xFF2196F3), Color.Black, Color.White)
+
+@Composable
+private fun AnnotateImageDialog(vm: AppViewModel, artworkId: Long, image: ArtworkImageEntity, onDismiss: () -> Unit, onSaved: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var annotations by remember { mutableStateOf<List<ImageAnnotation>>(emptyList()) }
+    var currentPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var selectedColor by remember { mutableStateOf(ANNOTATE_COLORS[0]) }
+    var textMode by remember { mutableStateOf(false) }
+    var pendingTextPos by remember { mutableStateOf<Offset?>(null) }
+    var pendingTextInput by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
+
+    val bitmapRatio = remember(image.localPath) {
+        val path = image.localPath
+        if (path == null) 1f else {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, opts)
+            if (opts.outWidth > 0 && opts.outHeight > 0) opts.outWidth.toFloat() / opts.outHeight else 1f
+        }
+    }
+
+    pendingTextPos?.let { pos ->
+        Dialog(onDismissRequest = { pendingTextPos = null; pendingTextInput = "" }) {
+            Surface(shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(20.dp).fillMaxWidth().imePadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("텍스트 메모", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(pendingTextInput, { pendingTextInput = it }, modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { pendingTextPos = null; pendingTextInput = "" }) { Text("취소") }
+                        Button(
+                            onClick = {
+                                if (pendingTextInput.isNotBlank()) annotations = annotations + TextAnnotationItem(pos, pendingTextInput, selectedColor)
+                                pendingTextPos = null; pendingTextInput = ""
+                            },
+                            enabled = pendingTextInput.isNotBlank()
+                        ) { Text("추가") }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(color = Color.Black, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "닫기", tint = Color.White) }
+                    IconButton(onClick = { annotations = annotations.dropLast(1) }, enabled = annotations.isNotEmpty()) { Icon(Icons.Default.Undo, "실행 취소", tint = Color.White) }
+                    IconButton(onClick = { annotations = emptyList() }, enabled = annotations.isNotEmpty()) { Icon(Icons.Default.DeleteSweep, "전체 지우기", tint = Color.White) }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { textMode = !textMode }) { Icon(if (textMode) Icons.Default.TextFields else Icons.Default.Brush, if (textMode) "텍스트 모드" else "그리기 모드", tint = Color.White) }
+                    TextButton(
+                        onClick = {
+                            val path = image.localPath
+                            if (path == null || saving) return@TextButton
+                            saving = true
+                            scope.launch {
+                                val bitmap = withContext(Dispatchers.IO) {
+                                    runCatching {
+                                        val original = BitmapFactory.decodeFile(path)
+                                        val result = original.copy(Bitmap.Config.ARGB_8888, true) ?: original
+                                        val canvas = AndroidCanvas(result)
+                                        val w = result.width.toFloat(); val h = result.height.toFloat()
+                                        annotations.forEach { ann ->
+                                            when (ann) {
+                                                is StrokeAnnotation -> {
+                                                    val paint = AndroidPaint().apply {
+                                                        color = ann.color.toArgb()
+                                                        style = AndroidPaint.Style.STROKE
+                                                        strokeWidth = w * 0.008f
+                                                        strokeCap = AndroidPaint.Cap.ROUND
+                                                        strokeJoin = AndroidPaint.Join.ROUND
+                                                        isAntiAlias = true
+                                                    }
+                                                    val pts = ann.points
+                                                    for (i in 0 until pts.size - 1) {
+                                                        canvas.drawLine(pts[i].x * w, pts[i].y * h, pts[i + 1].x * w, pts[i + 1].y * h, paint)
+                                                    }
+                                                }
+                                                is TextAnnotationItem -> {
+                                                    val paint = AndroidPaint().apply {
+                                                        color = ann.color.toArgb()
+                                                        textSize = w * 0.035f
+                                                        isAntiAlias = true
+                                                    }
+                                                    canvas.drawText(ann.text, ann.position.x * w, ann.position.y * h, paint)
+                                                }
+                                            }
+                                        }
+                                        result
+                                    }
+                                }
+                                bitmap.onSuccess { b ->
+                                    val newPath = vm.fileStore.saveBitmap(b)
+                                    vm.addAnnotatedImage(artworkId, newPath) { saving = false; onSaved() }
+                                }.onFailure { saving = false; errorMessage = it.message ?: "저장에 실패했습니다." }
+                            }
+                        },
+                        enabled = annotations.isNotEmpty() && !saving
+                    ) { Text(if (saving) "저장 중..." else "저장", color = Color.White) }
+                }
+                if (errorMessage.isNotBlank()) Text(errorMessage, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 12.dp))
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ANNOTATE_COLORS.forEach { c ->
+                        Box(
+                            Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(c)
+                                .border(width = if (c == selectedColor) 3.dp else 1.dp, color = Color.White, shape = RoundedCornerShape(14.dp))
+                                .clickable { selectedColor = c }
+                        )
+                    }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().aspectRatio(bitmapRatio)) {
+                        Poster(image.localPath, Modifier.fillMaxSize())
+                        Canvas(
+                            Modifier.fillMaxSize()
+                                .pointerInput(textMode) {
+                                    if (textMode) {
+                                        detectTapGestures { offset ->
+                                            if (size.width > 0 && size.height > 0) pendingTextPos = Offset(offset.x / size.width, offset.y / size.height)
+                                        }
+                                    } else {
+                                        detectDragGestures(
+                                            onDragStart = { offset -> currentPoints = listOf(offset) },
+                                            onDrag = { change, _ -> currentPoints = currentPoints + change.position },
+                                            onDragEnd = {
+                                                if (currentPoints.size > 1 && size.width > 0 && size.height > 0) {
+                                                    val normalized = currentPoints.map { Offset(it.x / size.width, it.y / size.height) }
+                                                    annotations = annotations + StrokeAnnotation(normalized, selectedColor)
+                                                }
+                                                currentPoints = emptyList()
+                                            }
+                                        )
+                                    }
+                                }
+                        ) {
+                            annotations.forEach { ann ->
+                                when (ann) {
+                                    is StrokeAnnotation -> {
+                                        if (ann.points.size > 1) {
+                                            val path = Path().apply {
+                                                val first = ann.points.first()
+                                                moveTo(first.x * size.width, first.y * size.height)
+                                                ann.points.drop(1).forEach { p -> lineTo(p.x * size.width, p.y * size.height) }
+                                            }
+                                            drawPath(path, ann.color, style = Stroke(width = size.width * 0.008f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                                        }
+                                    }
+                                    is TextAnnotationItem -> {
+                                        drawContext.canvas.nativeCanvas.drawText(
+                                            ann.text,
+                                            ann.position.x * size.width,
+                                            ann.position.y * size.height,
+                                            AndroidPaint().apply { color = ann.color.toArgb(); textSize = size.width * 0.035f; isAntiAlias = true }
+                                        )
+                                    }
+                                }
+                            }
+                            if (currentPoints.size > 1) {
+                                val path = Path().apply {
+                                    val first = currentPoints.first()
+                                    moveTo(first.x, first.y)
+                                    currentPoints.drop(1).forEach { p -> lineTo(p.x, p.y) }
+                                }
+                                drawPath(path, selectedColor, style = Stroke(width = size.width * 0.008f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -930,8 +1127,16 @@ private fun ArtworkDetailScreen(vm: AppViewModel, artworkId: Long, onBack: () ->
     val context = LocalContext.current
     val card by vm.artwork(artworkId).collectAsStateWithLifecycle(initialValue = null)
     val tags by vm.tagsForArtwork(artworkId).collectAsStateWithLifecycle(initialValue = emptyList())
-    var zoomImagePath by remember { mutableStateOf<String?>(null) }
-    zoomImagePath?.let { ZoomableImageDialog(it) { zoomImagePath = null } }
+    var zoomImage by remember { mutableStateOf<ArtworkImageEntity?>(null) }
+    var annotatingImage by remember { mutableStateOf<ArtworkImageEntity?>(null) }
+    zoomImage?.let { img ->
+        img.localPath?.let { path ->
+            ZoomableImageDialog(path, onDismiss = { zoomImage = null }, onAnnotate = { annotatingImage = img; zoomImage = null })
+        }
+    }
+    annotatingImage?.let { img ->
+        AnnotateImageDialog(vm, artworkId, img, onDismiss = { annotatingImage = null }, onSaved = { annotatingImage = null })
+    }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     var playingAudioId by remember { mutableStateOf<Long?>(null) }
     fun stopPlayback() {
@@ -961,7 +1166,7 @@ private fun ArtworkDetailScreen(vm: AppViewModel, artworkId: Long, onBack: () ->
                     val pagerState = rememberPagerState(pageCount = { artwork.images.size })
                     HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(320.dp)) { page ->
                         val path = artwork.images[page].localPath
-                        Box(Modifier.fillMaxSize().clickable(enabled = path != null) { path?.let { zoomImagePath = it } }) {
+                        Box(Modifier.fillMaxSize().clickable(enabled = path != null) { zoomImage = artwork.images[page] }) {
                             Poster(path, Modifier.fillMaxSize())
                         }
                     }

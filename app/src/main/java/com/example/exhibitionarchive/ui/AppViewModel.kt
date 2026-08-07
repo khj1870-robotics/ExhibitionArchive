@@ -193,6 +193,14 @@ class AppViewModel @Inject constructor(
         }
     }
 
+    fun addAnnotatedImage(artworkId: Long, path: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { repository.addAnnotatedImage(artworkId, path) }
+                .onSuccess { onDone() }
+                .onFailure { _message.value = it.message ?: "메모 이미지를 저장하지 못했습니다." }
+        }
+    }
+
     fun saveAudio(exhibitionId: Long, filePath: String, title: String = "음성 기록", durationMillis: Long? = null, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             runCatching { repository.addAudio(AudioRecordEntity(exhibitionId = exhibitionId, title = title, filePath = filePath, durationMillis = durationMillis)) }
